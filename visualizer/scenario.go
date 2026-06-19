@@ -105,8 +105,10 @@ func validateStep(s Step, nodeCount int) error {
 		}
 	}
 	if s.Restart != "" {
-		if err := checkNodeID(s.Restart, nodeCount); err != nil {
-			return err
+		if s.Restart != "killed" {
+			if err := checkNodeID(s.Restart, nodeCount); err != nil {
+				return err
+			}
 		}
 	}
 	if s.Put != nil {
@@ -200,6 +202,7 @@ func (srv *Server) runScenario() {
 		srv.err = ""
 		srv.stepIndex = 0
 		srv.eventSince = map[string]int64{}
+		srv.lastKilled = ""
 		srv.mu.Unlock()
 
 		failed := false
@@ -294,13 +297,25 @@ func (srv *Server) executeStep(step Step) error {
 			return fmt.Errorf("node %s not found", target)
 		}
 		node.Stop()
+		srv.mu.Lock()
+		srv.lastKilled = target
+		srv.mu.Unlock()
 		return nil
 
 	case step.Restart != "":
-		srv.appendLog("restarting " + step.Restart)
-		node := srv.cluster.NodeByID(step.Restart)
+		target := step.Restart
+		if target == "killed" {
+			srv.mu.RLock()
+			target = srv.lastKilled
+			srv.mu.RUnlock()
+			if target == "" {
+				return fmt.Errorf("no killed node to restart")
+			}
+		}
+		srv.appendLog("restarting " + target)
+		node := srv.cluster.NodeByID(target)
 		if node == nil {
-			return fmt.Errorf("node %s not found", step.Restart)
+			return fmt.Errorf("node %s not found", target)
 		}
 		return node.Restart(srv.binaryPath)
 

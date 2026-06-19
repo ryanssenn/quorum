@@ -39,6 +39,7 @@ type Server struct {
 	err             string
 	scenarioLog     []string
 	eventSince      map[string]int64
+	lastKilled      string
 }
 
 func fetchStatus(port string) (*NodeStatus, error) {

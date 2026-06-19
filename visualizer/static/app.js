@@ -194,7 +194,7 @@ function updateShowcaseUI() {
   if (elapsed >= 2800 && !clientRevealed) revealClient();
 
   const leader = getLeader(lastNodes);
-  const uncertainty = !leader && elapsed >= 12000 && elapsed < 18000;
+  const uncertainty = !leader && elapsed >= 11500 && elapsed < 16000;
   lastNodes.forEach((n) => {
     const a = actors[n.id];
     if (a?.nodeG) a.nodeG.classList.toggle("uncertainty", uncertainty && n.running);
@@ -1209,6 +1209,9 @@ function syncActors(nodes) {
     if (was && !alive) {
       setFocus([n.id], showcaseMode ? 1800 : 1000);
       if (!showcaseMode) showCallout("Node failed", "fail", 700);
+    }
+    if (!was && alive && showcaseMode && revealedNodes.has(n.id)) {
+      showCallout("Node rejoined", "leader", 1000);
     }
   });
 

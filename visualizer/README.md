@@ -17,10 +17,11 @@ Timeline (approximate):
 | Time | Scene |
 |------|-------|
 | 0–3s | Empty stage → nodes join one by one → leader elected |
-| 3–12s | Client writes replicate and commit (1.5s between writes) |
-| 12–16s | **Leader fails**, followers elect a replacement |
-| 16–48s | Writes resume under the new leader |
-| 48–60s | Logs align, loop restarts |
+| 3–11s | Client writes every 1.5s |
+| 11–15s | Leader fails, new election, writes continue |
+| ~19s | Failed leader **rejoins** (`restart: killed`) |
+| 19–54s | Continuous writes every 1.5s |
+| 54–60s | Brief stable beat, loop restarts |
 
 Nodes boot on a **500ms stagger** (backend + UI reveal) so the cluster starts empty and fills in before the first write.
 
@@ -150,7 +151,11 @@ Stops a node's process. The UI shows it as offline.
 { "restart": "node1", "comment": "optional description" }
 ```
 
-Starts a stopped node again with existing logs (`--reset=false`).
+Restart a stopped node with existing logs (`--reset=false`). Use `"killed"` to restart the node most recently stopped by a `kill` step:
+
+```json
+{ "restart": "killed" }
+```
 
 **Partition** (simulate network split by stopping minority nodes)
 
