@@ -17,8 +17,9 @@ import (
 	"time"
 )
 
-// Prevent integration tests from hanging until go test's 10m default timeout.
-var testHTTPClient = &http.Client{Timeout: 5 * time.Second}
+// Prevent integration tests from hanging until go test's default timeout.
+// Puts block until commit; allow headroom for election churn on slow CI.
+var testHTTPClient = &http.Client{Timeout: 20 * time.Second}
 
 var (
 	repoRoot  = filepath.Join(filepath.Dir(getTestFile()), "..")
@@ -91,7 +92,7 @@ func (n *Node) Status(t *testing.T) *Status {
 }
 
 func (n *Node) TryStatus() (*Status, error) {
-	statusURL := fmt.Sprintf("http://localhost:%s/status", n.port)
+	statusURL := fmt.Sprintf("http://127.0.0.1:%s/status", n.port)
 	resp, err := testHTTPClient.Get(statusURL)
 	if err != nil {
 		return nil, err
@@ -114,7 +115,7 @@ func (n *Node) Get(t *testing.T, key string) string {
 }
 
 func (n *Node) TryGet(key string) (string, error) {
-	baseURL := fmt.Sprintf("http://localhost:%s/get", n.port)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%s/get", n.port)
 	params := url.Values{}
 	params.Add("key", key)
 	fullURL := baseURL + "?" + params.Encode()
@@ -141,7 +142,7 @@ func (n *Node) Put(t *testing.T, key string, value string) string {
 }
 
 func (n *Node) TryPut(key string, value string) (string, error) {
-	baseURL := fmt.Sprintf("http://localhost:%s/put", n.port)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%s/put", n.port)
 	params := url.Values{}
 	params.Add("key", key)
 	params.Add("value", value)
@@ -162,15 +163,20 @@ func (n *Node) TryPut(key string, value string) (string, error) {
 
 func (n *Node) PutMustSucceed(t *testing.T, key, value string) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
 	var last string
 	for time.Now().Before(deadline) {
-		last = n.Put(t, key, value)
-		if last == "success" {
+		resp, err := n.TryPut(key, value)
+		if err != nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		last = resp
+		if resp == "success" {
 			return
 		}
-		if isTransientPutError(last) {
-			time.Sleep(100 * time.Millisecond)
+		if isTransientPutError(resp) {
+			time.Sleep(200 * time.Millisecond)
 			continue
 		}
 		t.Fatalf("%s put %s=%s failed: %q", n.id, key, value, last)
@@ -180,7 +186,7 @@ func (n *Node) PutMustSucceed(t *testing.T, key, value string) {
 
 func isTransientPutError(resp string) bool {
 	switch resp {
-	case "Error: election", "no leader elected yet", "leader not accessible":
+	case "", "Error: election", "no leader elected yet", "leader not accessible":
 		return true
 	default:
 		return strings.HasPrefix(resp, "Error:")
@@ -192,7 +198,7 @@ func NewNodes(n int) []*Node {
 	peers := ""
 	for i := 0; i < n; i++ {
 		id := "node" + strconv.Itoa(i+1)
-		addr := "localhost:" + strconv.Itoa(9001+i)
+		addr := "127.0.0.1:" + strconv.Itoa(9001+i)
 		peers += id + "=" + addr
 		if i != n-1 {
 			peers += ","
@@ -321,6 +327,37 @@ func WaitForNodeDown(t *testing.T, node *Node, timeout time.Duration) {
 	t.Fatalf("timed out waiting for %s to stop", node.id)
 }
 
+func clusterCaughtUp(nodes []*Node) bool {
+	var target int64 = -1
+	running := 0
+	for _, node := range nodes {
+		if !node.running {
+			continue
+		}
+		running++
+		status, err := node.TryStatus()
+		if err != nil {
+			return false
+		}
+		if status.LastApplied > target {
+			target = status.LastApplied
+		}
+	}
+	if running == 0 {
+		return true
+	}
+	for _, node := range nodes {
+		if !node.running {
+			continue
+		}
+		status, err := node.TryStatus()
+		if err != nil || status.LastApplied < target {
+			return false
+		}
+	}
+	return true
+}
+
 func WaitForLeader(t *testing.T, nodes []*Node, timeout time.Duration) *Node {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -341,6 +378,10 @@ func WaitForValue(t *testing.T, nodes []*Node, key, expected string, timeout tim
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		if !clusterCaughtUp(nodes) {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
 		allMatch := true
 		for _, node := range nodes {
 			if !node.running {

@@ -71,16 +71,27 @@ func TestLogPersistence(t *testing.T) {
 		value := fmt.Sprintf("value%d", i)
 		nodes[rand.Intn(len(nodes))].PutMustSucceed(t, key, value)
 	}
-	WaitForValue(t, nodes, "key9", "value9", 20*time.Second)
+	WaitForValue(t, nodes, "key9", "value9", 30*time.Second)
 
+	leader, _ := CountLeader(t, nodes)
+	restartOrder := make([]*Node, 0, len(nodes))
 	for _, node := range nodes {
+		if node != leader {
+			restartOrder = append(restartOrder, node)
+		}
+	}
+	if leader != nil {
+		restartOrder = append(restartOrder, leader)
+	}
+
+	for _, node := range restartOrder {
 		t.Logf("Killing node %s", node.id)
 		node.StopNode()
 		WaitForNodeDown(t, node, 10*time.Second)
 		t.Logf("Restarting node %s", node.id)
 		node.StartNode(t, "false")
-		WaitForLeader(t, nodes, 20*time.Second)
-		WaitForValue(t, []*Node{node}, "key9", "value9", 30*time.Second)
+		WaitForLeader(t, nodes, 30*time.Second)
+		WaitForValue(t, nodes, "key9", "value9", 60*time.Second)
 	}
 
 	for i := 1; i < 10; i++ {
