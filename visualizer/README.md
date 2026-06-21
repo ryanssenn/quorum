@@ -42,19 +42,6 @@ This will:
 
 Press `Ctrl+C` to stop the visualizer and shut down all nodes.
 
-### Other scenarios
-
-```bash
-# Short — replication via a follower
-go run ./visualizer visualizer/scenarios/replication.json
-
-# Short — kill the leader, watch re-election
-go run ./visualizer visualizer/scenarios/election.json
-
-# Short — kill a node, write while down, restart and catch up
-go run ./visualizer visualizer/scenarios/recovery.json
-```
-
 ## Flags
 
 | Flag | Default | Description |
@@ -165,10 +152,7 @@ Set `"loop": true` on a scenario to restart automatically when it finishes.
 | File | What it demonstrates |
 |------|----------------------|
 | `scenarios/showcase.json` | **60-second loop** — boot, writes, leader failure, replacement, recovery |
-| `scenarios/demo.json` | **Recommended** — full demo (~2 min): writes, leader kill, restarts, catch-up |
-| `scenarios/replication.json` | Put via a follower, verify replication across nodes |
-| `scenarios/election.json` | Kill the leader, watch a new election |
-| `scenarios/recovery.json` | Kill a node, write while it is down, restart and catch up |
+| `scenarios/demo.json` | Full demo (~2 min): writes, leader kill, restarts, catch-up |
 
 ## How it works
 
