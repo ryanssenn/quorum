@@ -63,7 +63,8 @@ go run ./visualizer visualizer/scenarios/recovery.json
 | `--no-browser` | `false` | Do not auto-open the browser |
 | `--binary` | `ryanDB` in repo root | Path to the raftDB binary |
 | `--demo` | `true` | Compress long `wait` steps for presentation pacing |
-| `--showcase` | `false` | Keynote mode: exact timing, staged node boot (auto-enabled when scenario has `"showcase": true`) |
+
+Showcase mode is enabled when the scenario JSON sets `"showcase": true` (staged boot, exact timing).
 
 Example:
 
@@ -155,18 +156,6 @@ Restart a stopped node with existing logs (`--reset=false`). Use `"killed"` to r
 
 ```json
 { "restart": "killed" }
-```
-
-**Partition** (simulate network split by stopping minority nodes)
-
-```json
-{ "partition": ["node1", "node2"], "comment": "isolate minority" }
-```
-
-**Heal** (restart partitioned nodes)
-
-```json
-{ "heal": ["node1", "node2"], "comment": "rejoin cluster" }
 ```
 
 Set `"loop": true` on a scenario to restart automatically when it finishes.
