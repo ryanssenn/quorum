@@ -16,6 +16,20 @@ This is not a production database. The core of the project is Raft: leader elect
 | Write latency, p99 (16 clients) | ~31 ms |
 | Failover recovery after leader crash | ~357 ms |
 
+### Benchmark environment
+
+Results were measured on a **Cursor Cloud VM** (June 2026) with all Raft nodes running as local processes on loopback:
+
+| Component | Specification |
+|---|---|
+| CPU | 4 vCPUs — Intel Xeon (Sapphire Rapids), x86_64 |
+| Memory | 16 GB RAM |
+| Disk | 256 GB overlay filesystem |
+| OS | Linux 6.1.147 (x86_64) |
+| Go | 1.24.0 |
+
+Re-run with `go run ./benchmarks` to reproduce on your own hardware. Absolute numbers are host-specific; the throughput/latency *shapes* in [`benchmarks/REPORT.md`](benchmarks/REPORT.md) are the more portable takeaways.
+
 ## What gets implemented
 
 The code follows the paper's main pieces:
