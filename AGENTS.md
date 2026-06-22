@@ -16,6 +16,15 @@ Standard commands (see `README.md`, `visualizer/README.md`, and `.github/workflo
 **Primary workflow: interactive playground**
 `go run ./visualizer --no-browser --sandbox` serves the UI on `:8080` and lets users configure/start clusters interactively. Guided tours: `go run ./visualizer --no-browser visualizer/scenarios/showcase.json`
 
+**Optional monitoring stack** (Prometheus + Grafana, not required for tests):
+```bash
+# terminal 1
+go run ./visualizer --no-browser --sandbox
+# terminal 2
+docker compose -f monitoring/docker-compose.yml up
+```
+Prometheus scrapes node `/metrics` on `:8001-8005` and cluster metrics on `:8080/metrics`. Grafana dashboard at `:3000`; three panels embed in the playground UI. See `monitoring/README.md`.
+
 Running a cluster manually (the actual product): each node needs a free HTTP port (`--port`, e.g. 8001+) and a gRPC port from `--peers` (9001+). A majority of nodes must be up to commit writes; start ≥3. Example:
 `./ryanDB --id=node1 --port=8001 --peers=node1=127.0.0.1:9001,node2=127.0.0.1:9002,node3=127.0.0.1:9003 --reset=true`
 Use `--reset=false` on restarts to keep persisted logs. HTTP API: `GET /put?key=&value=`, `GET /get?key=`, `GET /status`. Writes sent to a follower are forwarded to the leader over gRPC; give the cluster a second after boot before sending requests.

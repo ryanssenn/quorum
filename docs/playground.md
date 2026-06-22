@@ -1,6 +1,6 @@
 # Playground User Guide
 
-The playground runs real `ryanDB` processes and draws what they do. Not a simulation.
+The playground runs real `ryanDB` processes. Not a simulation.
 
 ## Getting started
 
@@ -10,59 +10,71 @@ go run ./visualizer --no-browser --sandbox
 
 1. Set the node count (3–9) and click **Configure**
 2. Click **Start** and wait for a leader to appear in the HUD
-3. Send writes from any client to any node
-4. Watch replication, commits, and heartbeats on the canvas
+3. Pick a target node, enter a key/value, and click **Write**
+4. Watch numbered log entries on each node card update as entries replicate and commit
 
 Screenshots: [playground-start.png](images/playground-start.png), [playground-write.png](images/playground-write.png), [playground-failover.png](images/playground-failover.png)
 
 ## What you'll see
 
-| Visual | Meaning |
-|---|---|
-| Teal packet: client → node | Client request |
-| Teal dashed arc | Follower forwards to leader |
-| Gold pulse | Vote request / election activity |
-| Purple beam | Log replication (`append_entries`) |
-| Green dot return | Replication ack |
-| Gold ripple | Entry committed (majority reached) |
-| Callout at bottom | Educational caption explaining the event |
+Each node card shows:
 
-### HUD metrics
-- **Term**: current Raft term (increments on elections)
-- **Commit**: highest committed log index
-- **Quorum**: replicas that have caught up vs majority needed
-- **Leader**: current leader node id
+| Element | Meaning |
+|---|---|
+| Role badge | follower, candidate, leader, or offline |
+| Term / commit | Current Raft term and commit index |
+| Numbered log list | Last ~12 entries with `#index op key=value` |
+| Green row | Entry is committed (`index <= commitIndex`) |
+| Gray row | Entry replicated but not yet committed |
+
+The HUD at the top tracks cluster-wide term, commit index, leader, and quorum progress.
+
+### Advanced drawer
+
+Open **Advanced** in the sidebar for chaos experiments:
+
+- Click a node card to select it, then **Kill**, **Restart**, or **Isolate**
+- Load and run guided tours
+- Scroll the event log for step-by-step scenario output
+
+## Metrics (optional)
+
+For live graphs, start the monitoring stack in a second terminal:
+
+```bash
+docker compose -f monitoring/docker-compose.yml up
+```
+
+Then refresh the playground UI. Three Grafana panels embed at the bottom (commit index, replication lag, Raft term). Open the full dashboard at http://localhost:3000.
+
+See [monitoring/README.md](../monitoring/README.md) for metric names and scrape targets.
 
 ## Experiments to try
 
 ### Leader failure
 1. Note the current leader in the HUD
-2. Select that node in Failure Lab → **Kill**
-3. Watch followers time out, hold an election, and elect a new leader
-4. Send writes. They succeed under the new leader
-5. **Restart** the killed node and watch it catch up
+2. Click the leader's node card, open **Advanced**, and click **Kill**
+3. Watch term increase and a new leader appear
+4. Send writes under the new leader
+5. **Restart** the killed node and watch its log catch up
 
 ### Network partition
 1. Start a 5-node cluster and write a key
-2. Select `node1` and `node2` in the partition section → **Isolate**
+2. Select a node and click **Isolate**
 3. Write from a node in the majority partition. Commits succeed
-4. **Clear** the partition. Logs converge across all nodes
+4. **Clear partition**. Logs converge across all nodes
 
 ### Persistence
 1. Write several keys
 2. Kill and restart nodes one at a time
 3. Read keys from restarted nodes. Data survives via disk persistence
 
-### Concurrent clients
-Add **client-B** and **client-C**, send writes from different clients to different nodes simultaneously. All committed writes appear on every replica.
-
 ## Guided tours
 
-Load a preset from the sidebar dropdown:
+Load a preset from the Advanced drawer:
 
 | Tour | Teaches |
 |---|---|
-| Lifecycle showcase | Boot, writes, leader failure, recovery, loop |
 | Leader election | Forced re-election after leader kill |
 | Leader failure | Kill + restart + catch-up |
 | Network partition | Split-brain prevention via quorum |
@@ -76,8 +88,9 @@ Each node is a real `ryanDB` process:
 - HTTP API on port 8001+
 - gRPC Raft RPCs on port 9001+
 - Logs persisted under `logs/` (`.rlog`, `.meta`)
+- Prometheus metrics at `/metrics` (disable with `--metrics=false`)
 
-The playground observes nodes via `/status` and `/events` endpoints. Partition simulation uses `/simulate/block` to drop gRPC between peers without stopping processes.
+The playground observes nodes via `/status`, `/log`, and `/events`. Partition simulation uses `/simulate/block` to drop gRPC between peers without stopping processes.
 
 For correctness guarantees, testing methodology, and benchmarks, see:
 - [Testing guide](development/testing.md)

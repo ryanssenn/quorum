@@ -19,20 +19,21 @@ import (
 var visualizerHTTPClient = &http.Client{Timeout: 3 * time.Second}
 
 type NodeStatus struct {
-	ID          string           `json:"id"`
-	Running     bool             `json:"running,omitempty"`
-	Reachable   bool             `json:"reachable,omitempty"`
-	State       int              `json:"state,omitempty"`
-	StateName   string           `json:"stateName,omitempty"`
-	Term        int64            `json:"term,omitempty"`
-	LeaderId    string           `json:"leaderId,omitempty"`
-	VoteFor     string           `json:"voteFor,omitempty"`
-	CommitIndex int64            `json:"commitIndex,omitempty"`
-	LastApplied int64            `json:"lastApplied,omitempty"`
-	LogLength   int              `json:"logLength,omitempty"`
-	MatchIndex  map[string]int64 `json:"matchIndex,omitempty"`
-	NextIndex   map[string]int64 `json:"nextIndex,omitempty"`
-	BlockedPeers []string        `json:"blockedPeers,omitempty"`
+	ID           string              `json:"id"`
+	Running      bool                `json:"running,omitempty"`
+	Reachable    bool                `json:"reachable,omitempty"`
+	State        int                 `json:"state,omitempty"`
+	StateName    string              `json:"stateName,omitempty"`
+	Term         int64               `json:"term,omitempty"`
+	LeaderId     string              `json:"leaderId,omitempty"`
+	VoteFor      string              `json:"voteFor,omitempty"`
+	CommitIndex  int64               `json:"commitIndex,omitempty"`
+	LastApplied  int64               `json:"lastApplied,omitempty"`
+	LogLength    int                 `json:"logLength,omitempty"`
+	MatchIndex   map[string]int64    `json:"matchIndex,omitempty"`
+	NextIndex    map[string]int64    `json:"nextIndex,omitempty"`
+	BlockedPeers []string            `json:"blockedPeers,omitempty"`
+	Entries      []core.LogEntryView `json:"entries,omitempty"`
 }
 
 type Server struct {
@@ -60,6 +61,9 @@ type Server struct {
 	partitionActive bool
 	partitionNodes  []string
 	streamClients   map[chan []byte]struct{}
+	logEntries      map[string][]core.LogEntryView
+	prevLogLength   map[string]int
+	lastLogFetch    time.Time
 }
 
 func NewServer(binaryPath string, sandbox bool) *Server {
@@ -69,6 +73,8 @@ func NewServer(binaryPath string, sandbox bool) *Server {
 		sandbox:       sandbox,
 		eventSince:    map[string]int64{},
 		streamClients: map[chan []byte]struct{}{},
+		logEntries:    map[string][]core.LogEntryView{},
+		prevLogLength: map[string]int{},
 	}
 }
 
@@ -102,6 +108,22 @@ func fetchEvents(port string, since int64) ([]core.Event, int64, error) {
 		return nil, since, err
 	}
 	return body.Events, body.LatestSeq, nil
+}
+
+func fetchLog(port string, tail int) ([]core.LogEntryView, error) {
+	resp, err := visualizerHTTPClient.Get(fmt.Sprintf("http://localhost:%s/log?tail=%d", port, tail))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Entries []core.LogEntryView `json:"entries"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	return body.Entries, nil
 }
 
 type Event = core.Event
@@ -179,6 +201,45 @@ func (srv *Server) clusterStatusLocked() []NodeStatus {
 	return statuses
 }
 
+func (srv *Server) refreshLogsLocked() {
+	now := time.Now()
+	if now.Sub(srv.lastLogFetch) < 200*time.Millisecond {
+		return
+	}
+	srv.lastLogFetch = now
+
+	for _, node := range srv.cluster.Nodes {
+		if !node.Running {
+			delete(srv.logEntries, node.ID)
+			delete(srv.prevLogLength, node.ID)
+			continue
+		}
+		st, err := fetchStatus(node.Port)
+		if err != nil {
+			continue
+		}
+		prev := srv.prevLogLength[node.ID]
+		if st.LogLength != prev || len(srv.logEntries[node.ID]) == 0 {
+			entries, err := fetchLog(node.Port, 12)
+			if err == nil {
+				srv.logEntries[node.ID] = entries
+				srv.prevLogLength[node.ID] = st.LogLength
+			}
+		}
+	}
+}
+
+func (srv *Server) clusterStatusWithLogsLocked() []NodeStatus {
+	srv.refreshLogsLocked()
+	statuses := srv.clusterStatusLocked()
+	for i := range statuses {
+		if entries, ok := srv.logEntries[statuses[i].ID]; ok {
+			statuses[i].Entries = entries
+		}
+	}
+	return statuses
+}
+
 func (srv *Server) collectEventsLocked() []Event {
 	var all []Event
 	for _, node := range srv.cluster.Nodes {
@@ -205,8 +266,8 @@ func (srv *Server) collectEventsLocked() []Event {
 func (srv *Server) broadcastSnapshot() {
 	srv.mu.Lock()
 	payload := map[string]any{
-		"nodes":      srv.clusterStatusLocked(),
-		"events":     srv.collectEventsLocked(),
+		"nodes":           srv.clusterStatusWithLogsLocked(),
+		"events":          srv.collectEventsLocked(),
 		"clusterStarted": srv.clusterStarted,
 		"partitionActive": srv.partitionActive,
 		"partitionNodes": srv.partitionNodes,
@@ -320,10 +381,10 @@ func (srv *Server) handleScenario(w http.ResponseWriter, r *http.Request) {
 }
 
 func (srv *Server) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
-	srv.mu.RLock()
-	defer srv.mu.RUnlock()
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	json.NewEncoder(w).Encode(map[string]any{
-		"nodes":           srv.clusterStatusLocked(),
+		"nodes":           srv.clusterStatusWithLogsLocked(),
 		"clusterStarted":  srv.clusterStarted,
 		"nodeCount":       len(srv.cluster.Nodes),
 		"partitionActive": srv.partitionActive,
@@ -363,6 +424,8 @@ func (srv *Server) handleClusterCreate(w http.ResponseWriter, r *http.Request) {
 	harness.KillPorts(req.Nodes)
 	srv.cluster = NewCluster(req.Nodes)
 	srv.eventSince = map[string]int64{}
+	srv.logEntries = map[string][]core.LogEntryView{}
+	srv.prevLogLength = map[string]int{}
 	srv.partitionActive = false
 	srv.partitionNodes = nil
 	srv.appendLog(fmt.Sprintf("cluster configured with %d nodes", req.Nodes))
@@ -409,6 +472,8 @@ func (srv *Server) handleClusterStop(w http.ResponseWriter, r *http.Request) {
 	srv.partitionActive = false
 	srv.partitionNodes = nil
 	srv.eventSince = map[string]int64{}
+	srv.logEntries = map[string][]core.LogEntryView{}
+	srv.prevLogLength = map[string]int{}
 	srv.appendLog("cluster stopped")
 	srv.mu.Unlock()
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -710,6 +775,7 @@ func (srv *Server) registerRoutes(mux *http.ServeMux, static http.Handler) {
 	mux.HandleFunc("/api/cluster/partition", srv.handlePartition)
 	mux.HandleFunc("/api/cluster/partition/clear", srv.handlePartitionClear)
 	mux.HandleFunc("/api/request", srv.handleRequest)
+	mux.HandleFunc("/metrics", srv.handleMetrics)
 	mux.HandleFunc("/api/cluster/nodes/", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Path[len("/api/cluster/nodes/"):]
 		if id == "" {

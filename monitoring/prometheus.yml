@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: ryanDB
+    static_configs:
+      - targets:
+          - host.docker.internal:8001
+          - host.docker.internal:8002
+          - host.docker.internal:8003
+          - host.docker.internal:8004
+          - host.docker.internal:8005
+        labels:
+          cluster: playground
+
+  - job_name: visualizer
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+        labels:
+          cluster: playground

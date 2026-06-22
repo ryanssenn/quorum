@@ -129,6 +129,7 @@ func (n *Node) ReplicateToFollower(id string) {
 		cancel()
 
 		if err == nil && resp.Success {
+			n.RecordAppendEntries("success")
 			if len(entries) > 0 {
 				n.recordEvent(Event{
 					Type:    "append_response",
@@ -151,10 +152,13 @@ func (n *Node) ReplicateToFollower(id string) {
 				})
 			}
 		} else if err == nil && len(entries) > 0 {
+			n.RecordAppendEntries("failure")
 			if n.NextIndex[id].Load() > 0 {
 				n.NextIndex[id].Add(-1)
 			}
 			continue
+		} else if err != nil {
+			n.RecordAppendEntries("error")
 		}
 
 		if len(entries) == 0 {
@@ -190,6 +194,7 @@ func (n *Node) UpdateCommitIndex() {
 				Term:   n.Term.Load(),
 				Detail: fmt.Sprintf("%d", i),
 			})
+			n.RecordCommit()
 			n.ApplyCommitted()
 			n.CommitCond.L.Lock()
 			n.CommitCond.Broadcast()

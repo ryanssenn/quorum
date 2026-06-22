@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,6 +108,47 @@ func TestControlAPI(t *testing.T) {
 	resp.Body.Close()
 	if reqResult.Result != "success" {
 		t.Fatalf("put result %q", reqResult.Result)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		st, err := http.Get(ts.URL + "/api/cluster/status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var statusBody struct {
+			Nodes []NodeStatus `json:"nodes"`
+		}
+		json.NewDecoder(st.Body).Decode(&statusBody)
+		st.Body.Close()
+		for _, n := range statusBody.Nodes {
+			if n.Running && len(n.Entries) > 0 {
+				goto entriesFound
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("expected log entries on nodes after write")
+entriesFound:
+
+	metricsResp, err := http.Get("http://localhost:8001/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricsBody, _ := io.ReadAll(metricsResp.Body)
+	metricsResp.Body.Close()
+	if !strings.Contains(string(metricsBody), "raftdb_term") {
+		t.Fatalf("node metrics missing raftdb_term:\n%s", metricsBody)
+	}
+
+	clusterMetrics, err := http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clusterBody, _ := io.ReadAll(clusterMetrics.Body)
+	clusterMetrics.Body.Close()
+	if !strings.Contains(string(clusterBody), "raftdb_replication_lag") {
+		t.Fatalf("cluster metrics missing raftdb_replication_lag:\n%s", clusterBody)
 	}
 
 	resp, err = post("/api/cluster/nodes/node2/kill", nil)

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ryansenn/ryanDB/core"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var node *core.Node
@@ -167,6 +168,7 @@ func main() {
 	peersStr := flag.String("peers", "", "Comma-separated list of id=addr pairs (e.g., node1=localhost:8001,node2=localhost:8002,node3=localhost:8003)")
 	reset := flag.Bool("reset", false, "Reset logs and metadata")
 	noEvents := flag.Bool("no-events", false, "Disable debug event recording")
+	metrics := flag.Bool("metrics", true, "Expose Prometheus /metrics endpoint")
 
 	flag.Parse()
 
@@ -196,6 +198,14 @@ func main() {
 	http.HandleFunc("/events", events)
 	http.HandleFunc("/simulate/block", simulateBlock)
 	http.HandleFunc("/simulate/unblock", simulateUnblock)
+
+	if *metrics {
+		core.RegisterNodeMetrics(node)
+		http.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			node.RefreshMetrics()
+			promhttp.Handler().ServeHTTP(w, r)
+		}))
+	}
 
 	log.Fatalf("%s: %v", *id, http.ListenAndServe(":"+*port, nil))
 }
