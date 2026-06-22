@@ -19,13 +19,15 @@ func get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	key := r.URL.Query().Get("key")
 	cmd := core.NewCommand("get", key, "")
-	node.Events.Record(core.Event{
-		Type: "client_request",
-		From: "client",
-		To:   node.Id,
-		Op:   "get",
-		Key:  key,
-	})
+	if node.Events != nil {
+		node.Events.Record(core.Event{
+			Type: "client_request",
+			From: "client",
+			To:   node.Id,
+			Op:   "get",
+			Key:  key,
+		})
+	}
 	w.Write([]byte(node.HandleCommand(cmd)))
 }
 
@@ -34,13 +36,15 @@ func put(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 	value := r.URL.Query().Get("value")
 	cmd := core.NewCommand("put", key, value)
-	node.Events.Record(core.Event{
-		Type: "client_request",
-		From: "client",
-		To:   node.Id,
-		Op:   "put",
-		Key:  key,
-	})
+	if node.Events != nil {
+		node.Events.Record(core.Event{
+			Type: "client_request",
+			From: "client",
+			To:   node.Id,
+			Op:   "put",
+			Key:  key,
+		})
+	}
 	w.Write([]byte(node.HandleCommand(cmd)))
 }
 
@@ -95,6 +99,7 @@ func main() {
 	port := flag.String("port", "8000", "Port to listen on")
 	peersStr := flag.String("peers", "", "Comma-separated list of id=addr pairs (e.g., node1=localhost:8001,node2=localhost:8002,node3=localhost:8003)")
 	reset := flag.Bool("reset", false, "Reset logs and metadata")
+	noEvents := flag.Bool("no-events", false, "Disable debug event recording")
 
 	flag.Parse()
 
@@ -104,6 +109,10 @@ func main() {
 	}
 
 	node = core.NewNode(*id, parsePeers(*peersStr))
+
+	if *noEvents {
+		node.Events = nil
+	}
 
 	if *reset {
 		node.Logger.ClearData()

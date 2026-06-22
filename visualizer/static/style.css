@@ -190,7 +190,7 @@ html, body {
 
 .hidden { display: none !important; }
 
-/* Machine cards — topology + log per node */
+/* Machine cards: topology + log per node */
 .node-machine {
   transition: opacity 0.2s ease;
 }

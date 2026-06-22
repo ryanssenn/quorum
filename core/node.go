@@ -68,6 +68,7 @@ type Node struct {
 
 	LeaderId           atomic.Pointer[string]
 	ResetElectionTimer chan struct{}
+	ReplicateNotify    chan struct{}
 	Logger             *Logger
 	Storage            *Engine
 	Events             *EventLog
@@ -85,6 +86,7 @@ func NewNode(id string, peers map[string]string) *Node {
 		CommitCond:         sync.NewCond(&sync.Mutex{}),
 		ApplyCond:          sync.NewCond(&sync.Mutex{}),
 		ResetElectionTimer: make(chan struct{}, 1),
+		ReplicateNotify:    make(chan struct{}, 1),
 		Logger:             newLogger(id),
 		Storage:            NewEngine(),
 		Events:             NewEventLog(),

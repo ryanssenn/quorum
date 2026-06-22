@@ -100,15 +100,16 @@ type proc struct {
 }
 
 type cluster struct {
-	size   int
-	procs  []*proc
-	binary string
-	peers  string
-	logDir string
+	size     int
+	procs    []*proc
+	binary   string
+	peers    string
+	logDir   string
+	noEvents bool
 }
 
-func newCluster(size int, binary, logDir string) *cluster {
-	c := &cluster{size: size, binary: binary, logDir: logDir, peers: harness.BuildPeers(size)}
+func newCluster(size int, binary, logDir string, noEvents bool) *cluster {
+	c := &cluster{size: size, binary: binary, logDir: logDir, peers: harness.BuildPeers(size), noEvents: noEvents}
 	for i := 0; i < size; i++ {
 		c.procs = append(c.procs, &proc{
 			id:       fmt.Sprintf("node%d", i+1),
@@ -119,12 +120,16 @@ func newCluster(size int, binary, logDir string) *cluster {
 }
 
 func (c *cluster) startProc(p *proc, reset string) error {
-	cmd := exec.Command(c.binary,
-		"--id="+p.id,
-		"--port="+strconv.Itoa(p.httpPort),
-		"--peers="+c.peers,
-		"--reset="+reset,
-	)
+	args := []string{
+		"--id=" + p.id,
+		"--port=" + strconv.Itoa(p.httpPort),
+		"--peers=" + c.peers,
+		"--reset=" + reset,
+	}
+	if c.noEvents {
+		args = append(args, "--no-events=true")
+	}
+	cmd := exec.Command(c.binary, args...)
 	logFile, err := os.Create(filepath.Join(c.logDir, p.id+".log"))
 	if err != nil {
 		return err
@@ -429,6 +434,7 @@ func main() {
 	concStr := flag.String("concurrency", "1,4,8,16,32,64", "comma-separated concurrency levels")
 	preloadN := flag.Int("preload", 2000, "number of keys to preload for read tests")
 	outDir := flag.String("out", "", "output directory (default benchmarks/results)")
+	noEvents := flag.Bool("no-events", false, "pass --no-events to ryanDB nodes")
 	flag.Parse()
 
 	dur := *durFlag
@@ -464,7 +470,7 @@ func main() {
 
 	// ---- Experiment 1 & 2: write/read concurrency sweep on a 3-node cluster ----
 	log.Printf("=== concurrency sweep (3-node cluster) ===")
-	c3 := newCluster(3, binary, logDir)
+	c3 := newCluster(3, binary, logDir, *noEvents)
 	if err := c3.start("true"); err != nil {
 		log.Fatalf("start 3-node cluster: %v", err)
 	}
@@ -511,7 +517,7 @@ func main() {
 	// ---- Experiment 4: cluster-size impact on write performance ----
 	log.Printf("=== cluster size impact (write, concurrency=16) ===")
 	for _, size := range []int{3, 5} {
-		c := newCluster(size, binary, logDir)
+		c := newCluster(size, binary, logDir, *noEvents)
 		if err := c.start("true"); err != nil {
 			log.Fatalf("start %d-node cluster: %v", size, err)
 		}
@@ -529,7 +535,7 @@ func main() {
 
 	// ---- Experiment 5: failover / availability ----
 	log.Printf("=== failover recovery (3-node) ===")
-	cf := newCluster(3, binary, logDir)
+	cf := newCluster(3, binary, logDir, *noEvents)
 	if err := cf.start("true"); err != nil {
 		log.Fatalf("start failover cluster: %v", err)
 	}

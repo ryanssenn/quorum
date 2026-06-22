@@ -226,7 +226,7 @@ func TestNoDualLeaders(t *testing.T) {
 func TestWriteWhileNoLeader(t *testing.T) {
 	nodes := InitNodes(t)
 
-	// Leave one node alive — not enough for a quorum in a 5-node cluster.
+	// Leave one node alive; not enough for a quorum in a 5-node cluster.
 	for _, node := range nodes[:4] {
 		node.StopNode()
 	}
@@ -235,7 +235,7 @@ func TestWriteWhileNoLeader(t *testing.T) {
 	}
 
 	// The survivor may still report leader state, but it cannot commit without
-	// a quorum. Writes should fail or time out — never return success.
+	// a quorum. Writes should fail or time out; never return success.
 	client := &http.Client{Timeout: 3 * time.Second}
 	putURL := fmt.Sprintf("http://127.0.0.1:%s/put?key=%s&value=%s", nodes[4].port, "key", "value")
 
@@ -243,7 +243,7 @@ func TestWriteWhileNoLeader(t *testing.T) {
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(putURL)
 		if err != nil {
-			return // blocked or unreachable — expected without quorum
+			return // blocked or unreachable; expected without quorum
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()

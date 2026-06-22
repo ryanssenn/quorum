@@ -714,7 +714,7 @@ function updateActorRails() {
 function updateEngineHud() {
   const leader = getLeader(lastNodes);
   if (leader) {
-    commitIndexDisplay.textContent = leader.commitIndex >= 0 ? String(leader.commitIndex) : "—";
+    commitIndexDisplay.textContent = leader.commitIndex >= 0 ? String(leader.commitIndex) : "-";
   }
   const needed = quorumTrack.needed || majorityNeeded();
   const acks = quorumTrack.acks;
