@@ -11,10 +11,10 @@ The implementation covers leader election, log replication, disk persistence, an
 | Metric | Result |
 |---|---|
 | Read throughput (peak) | ~72,000 ops/sec |
-| Write throughput (64 clients) | ~2,400 ops/sec |
-| Read latency, p99 (16 clients) | ~1.5 ms |
-| Write latency, p99 (16 clients) | ~31 ms |
-| Failover recovery after leader crash | ~357 ms |
+| Write throughput (64 clients) | ~19,500 ops/sec |
+| Read latency, p99 (16 clients) | ~1.3 ms |
+| Write latency, p99 (16 clients) | ~4 ms |
+| Failover recovery after leader crash | ~327 ms |
 
 These numbers come from a Cursor Cloud VM with 4 vCPUs, 16 GB RAM, and Go 1.24.0. Re-run with `go run ./benchmarks` on your own machine.
 
