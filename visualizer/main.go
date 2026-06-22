@@ -62,7 +62,7 @@ func main() {
 		if err := cluster.StartStaggered(binaryPath, true, 500*time.Millisecond); err != nil {
 			log.Fatalf("start cluster: %v", err)
 		}
-		log.Printf("showcase mode — staged boot, scenario begins immediately")
+		log.Printf("showcase mode: staged boot, scenario begins immediately")
 	} else {
 		if err := cluster.StartAll(binaryPath, true); err != nil {
 			log.Fatalf("start cluster: %v", err)

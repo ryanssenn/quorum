@@ -129,17 +129,17 @@ func (s *Step) Description() string {
 	switch {
 	case s.Wait != "":
 		if s.Comment != "" {
-			return "wait " + s.Wait + " — " + s.Comment
+			return "wait " + s.Wait + ": " + s.Comment
 		}
 		return "wait " + s.Wait
 	case s.Kill != "":
 		if s.Comment != "" {
-			return "kill " + s.Kill + " — " + s.Comment
+			return "kill " + s.Kill + ": " + s.Comment
 		}
 		return "kill " + s.Kill
 	case s.Restart != "":
 		if s.Comment != "" {
-			return "restart " + s.Restart + " — " + s.Comment
+			return "restart " + s.Restart + ": " + s.Comment
 		}
 		return "restart " + s.Restart
 	case s.Put != nil:
@@ -201,7 +201,7 @@ func (srv *Server) runScenario() {
 			return
 		}
 
-		srv.appendLog(fmt.Sprintf("loop — cycle %d complete, restarting", cycle+1))
+		srv.appendLog(fmt.Sprintf("loop: cycle %d complete, restarting", cycle+1))
 	}
 }
 

@@ -42,7 +42,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 1: Skip replication sleep when entries are pending — **KEPT**
+## Optimization 1: Skip replication sleep when entries are pending (**KEPT**)
 
 **Problem:** `ReplicateToFollower` slept 10 ms after every AppendEntries RPC, including after successfully replicating entries. This added idle time on the critical path under load.
 
@@ -60,7 +60,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 2: Group commit (defer fsync until replication) — **KEPT**
+## Optimization 2: Group commit (defer fsync until replication) (**KEPT**)
 
 **Problem:** Every log append called `fsync` immediately. At high concurrency, many entries were appended to the OS page cache before any could be batched.
 
@@ -81,7 +81,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 3: Disable debug event recording (`--no-events`) — **NOT KEPT for perf**
+## Optimization 3: Disable debug event recording (`--no-events`) (**NOT KEPT for perf**)
 
 **Problem:** Event recording on every client request and Raft RPC adds mutex + allocation overhead.
 
@@ -98,7 +98,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 4: Single fsync per batch (dirty flag) — **KEPT**
+## Optimization 4: Single fsync per batch (dirty flag) (**KEPT**)
 
 **Problem:** With opt 2, each follower replication goroutine called `Sync()` before its RPC. A 3-node cluster triggered two redundant fsyncs per batch.
 
@@ -115,7 +115,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 5: Cache serialized command bytes — **KEPT**
+## Optimization 5: Cache serialized command bytes (**KEPT**)
 
 **Problem:** The leader re-marshaled each log entry to JSON on every AppendEntries RPC to every follower.
 
@@ -132,7 +132,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 6: Wake replicators on append — **KEPT**
+## Optimization 6: Wake replicators on append (**KEPT**)
 
 **Problem:** After replicating all pending entries, follower goroutines sent a heartbeat and then slept 10 ms. A new client write during that sleep waited unnecessarily.
 
@@ -150,7 +150,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
-## Optimization 7: Remove replication failure backoff — **KEPT**
+## Optimization 7: Remove replication failure backoff (**KEPT**)
 
 **Problem:** On AppendEntries mismatch, the replicator slept 1 ms before retrying.
 
