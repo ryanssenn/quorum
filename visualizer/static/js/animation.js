@@ -167,7 +167,7 @@ export function eventCallout(e) {
       if (e.detail === "candidate") return `${e.from} starts election for term ${e.term}`;
       return `${e.from} becomes ${e.detail}`;
     case "commit":
-      return `Entry ${e.detail} committed — majority reached`;
+      return `Entry ${e.detail} committed (majority reached)`;
     case "append_entries":
       return e.entries > 0
         ? `Leader replicates ${e.entries} entr${e.entries === 1 ? "y" : "ies"} to ${e.to}`

@@ -2,7 +2,7 @@
 
 Go implementation of Raft with a browser UI on top. You start a real cluster, send writes, kill nodes, and watch elections and replication happen.
 
-This is for learning, not production. The Raft code is tested (unit + integration) and benchmarked — details below.
+This is for learning, not production. The Raft code is tested (unit + integration) and benchmarked. Details below.
 
 ## Try it
 

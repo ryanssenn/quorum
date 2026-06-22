@@ -133,8 +133,8 @@ export function updateHUD(state) {
   const leader = running.find((n) => n.state === 2 || n.stateName === "leader");
   const maxCommit = running.reduce((m, n) => Math.max(m, n.commitIndex ?? -1), -1);
 
-  document.getElementById("hud-term").textContent = leader?.term ?? running[0]?.term ?? "—";
-  document.getElementById("hud-commit").textContent = maxCommit >= 0 ? maxCommit : "—";
+  document.getElementById("hud-term").textContent = leader?.term ?? running[0]?.term ?? "-";
+  document.getElementById("hud-commit").textContent = maxCommit >= 0 ? maxCommit : "-";
   document.getElementById("hud-leader").textContent = leader?.id ?? "none";
 
   const needed = quorumNeeded(nodes.length || 5);

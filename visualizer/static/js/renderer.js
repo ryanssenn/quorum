@@ -95,7 +95,7 @@ export class Renderer {
     const nodeId = el("text", { class: "node-id", x: 0, y: -8, "text-anchor": "middle" }, g);
     nodeId.textContent = id;
     const termText = el("text", { x: 0, y: 8, "text-anchor": "middle", fill: "#7a7d94", "font-size": "10" }, g);
-    termText.textContent = "term —";
+    termText.textContent = "term -";
     const logG = el("g", { class: "log-strip", transform: `translate(${-CARD.logW / 2}, 18)` }, g);
     const slots = [];
     for (let i = 0; i < 5; i++) {
@@ -151,7 +151,7 @@ export class Renderer {
     g.classList.toggle("candidate", role === "candidate");
     roleBadge.textContent = role;
     roleBadge.setAttribute("fill", roleColors[role] || roleColors.follower);
-    termText.textContent = node.running ? `term ${node.term ?? "—"}` : "offline";
+    termText.textContent = node.running ? `term ${node.term ?? "-"}` : "offline";
 
     const logLen = node.logLength ?? 0;
     const commit = node.commitIndex ?? -1;

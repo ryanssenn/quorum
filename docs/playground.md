@@ -28,10 +28,10 @@ Screenshots: [playground-start.png](images/playground-start.png), [playground-wr
 | Callout at bottom | Educational caption explaining the event |
 
 ### HUD metrics
-- **Term** — current Raft term (increments on elections)
-- **Commit** — highest committed log index
-- **Quorum** — replicas that have caught up vs majority needed
-- **Leader** — current leader node id
+- **Term**: current Raft term (increments on elections)
+- **Commit**: highest committed log index
+- **Quorum**: replicas that have caught up vs majority needed
+- **Leader**: current leader node id
 
 ## Experiments to try
 
@@ -39,19 +39,19 @@ Screenshots: [playground-start.png](images/playground-start.png), [playground-wr
 1. Note the current leader in the HUD
 2. Select that node in Failure Lab → **Kill**
 3. Watch followers time out, hold an election, and elect a new leader
-4. Send writes — they succeed under the new leader
+4. Send writes. They succeed under the new leader
 5. **Restart** the killed node and watch it catch up
 
 ### Network partition
 1. Start a 5-node cluster and write a key
 2. Select `node1` and `node2` in the partition section → **Isolate**
-3. Write from a node in the majority partition — commits succeed
-4. **Clear** the partition — logs converge across all nodes
+3. Write from a node in the majority partition. Commits succeed
+4. **Clear** the partition. Logs converge across all nodes
 
 ### Persistence
 1. Write several keys
 2. Kill and restart nodes one at a time
-3. Read keys from restarted nodes — data survives via disk persistence
+3. Read keys from restarted nodes. Data survives via disk persistence
 
 ### Concurrent clients
 Add **client-B** and **client-C**, send writes from different clients to different nodes simultaneously. All committed writes appear on every replica.

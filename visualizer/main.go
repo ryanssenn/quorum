@@ -73,7 +73,7 @@ func main() {
 		go srv.runScenario()
 	} else {
 		log.Printf("sandbox mode: open UI to configure and start cluster")
-		srv.appendLog("playground ready — configure cluster in UI")
+		srv.appendLog("playground ready; configure cluster in UI")
 	}
 
 	static, err := fs.Sub(staticFiles, "static")

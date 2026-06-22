@@ -40,11 +40,11 @@ go run ./visualizer --no-browser visualizer/scenarios/showcase.json
 
 ### Guided tours
 Preset scenarios in `visualizer/scenarios/`:
-- `showcase.json` — full lifecycle loop
-- `election.json` — leader re-election
-- `failure.json` — leader kill and recovery
-- `partition.json` — network split and healing
-- `persistence.json` — restart and verify data
+- `showcase.json`: full lifecycle loop
+- `election.json`: leader re-election
+- `failure.json`: leader kill and recovery
+- `partition.json`: network split and healing
+- `persistence.json`: restart and verify data
 
 Load a tour from the sidebar, then **Run** / **Pause**.
 
