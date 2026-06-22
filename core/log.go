@@ -17,8 +17,9 @@ type Command struct {
 }
 
 type LogEntry struct {
-	Term    int64
-	Command Command
+	Term       int64
+	Command    Command
+	Serialized []byte
 }
 
 type MetaData struct {
@@ -31,7 +32,11 @@ func NewCommand(op string, key string, value string) *Command {
 }
 
 func NewLogEntry(term int64, command *Command) *LogEntry {
-	return &LogEntry{Term: term, Command: *command}
+	serialized, err := json.Marshal(command)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return &LogEntry{Term: term, Command: *command, Serialized: serialized}
 }
 
 type Logger struct {
@@ -40,6 +45,8 @@ type Logger struct {
 	metaFile *os.File
 	offset   []int64
 	metaMu   sync.Mutex
+	dirty    bool
+	syncMu   sync.Mutex
 }
 
 func newLogger(id string) *Logger {
@@ -111,7 +118,19 @@ func (l *Logger) AppendLog(entry *LogEntry) {
 	}
 
 	l.offset = append(l.offset, pos)
-	l.logFile.Sync()
+	l.dirty = true
+}
+
+func (l *Logger) Sync() {
+	l.syncMu.Lock()
+	defer l.syncMu.Unlock()
+	if !l.dirty {
+		return
+	}
+	if err := l.logFile.Sync(); err != nil {
+		log.Fatalf("%s sync log: %v", l.Id, err)
+	}
+	l.dirty = false
 }
 
 func (l *Logger) AppendLogs(entries []*LogEntry, start int64) {
@@ -125,6 +144,7 @@ func (l *Logger) AppendLogs(entries []*LogEntry, start int64) {
 	for _, entry := range entries {
 		l.AppendLog(entry)
 	}
+	l.Sync()
 }
 
 func encodeLogEntry(entry *LogEntry) []byte {
@@ -149,6 +169,10 @@ func decodeLogEntry(buf []byte) *LogEntry {
 	buf = buf[:len(buf)-1]
 	var entry LogEntry
 	err := json.Unmarshal(buf, &entry)
+	if err != nil {
+		log.Fatal(err)
+	}
+	entry.Serialized, err = json.Marshal(&entry.Command)
 	if err != nil {
 		log.Fatal(err)
 	}

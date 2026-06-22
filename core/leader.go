@@ -2,13 +2,18 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	pb "github.com/ryansenn/ryanDB/proto/nodepb"
 )
+
+func (n *Node) notifyReplicators() {
+	select {
+	case n.ReplicateNotify <- struct{}{}:
+	default:
+	}
+}
 
 func (n *Node) AppendLog(cmd *Command) int {
 	entry := NewLogEntry(n.Term.Load(), cmd)
@@ -16,6 +21,9 @@ func (n *Node) AppendLog(cmd *Command) int {
 	defer n.LogMu.Unlock()
 	n.Logger.AppendLog(entry)
 	n.Log = append(n.Log, entry)
+	if n.State == Leader {
+		n.notifyReplicators()
+	}
 	return len(n.Log) - 1
 }
 
@@ -69,11 +77,7 @@ func (n *Node) ReplicateToFollower(id string) {
 		var entries []*pb.LogEntry
 
 		for _, entry := range snapshot {
-			serializedCommand, err := json.Marshal(entry.Command)
-			if err != nil {
-				log.Print(err)
-			}
-			entries = append(entries, &pb.LogEntry{Term: entry.Term, Command: serializedCommand})
+			entries = append(entries, &pb.LogEntry{Term: entry.Term, Command: entry.Serialized})
 		}
 
 		req := pb.AppendRequest{
@@ -106,6 +110,10 @@ func (n *Node) ReplicateToFollower(id string) {
 			})
 		}
 
+		if len(entries) > 0 {
+			n.Logger.Sync()
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		resp, err := n.Clients[id].AppendEntries(ctx, &req)
 		cancel()
@@ -136,9 +144,15 @@ func (n *Node) ReplicateToFollower(id string) {
 			if n.NextIndex[id].Load() > 0 {
 				n.NextIndex[id].Add(-1)
 			}
+			continue
 		}
 
-		time.Sleep(10 * time.Millisecond)
+		if len(entries) == 0 {
+			select {
+			case <-n.ReplicateNotify:
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
 	}
 }
 
