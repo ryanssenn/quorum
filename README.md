@@ -1,23 +1,22 @@
 # ryanDB
 
-Go implementation of Raft with an observability demo on top. Start a real cluster, run scenarios, and watch consensus metrics in Grafana.
+Go implementation of Raft with an observability demo on top. Start a real cluster, run a guided demo, and watch throughput and consensus metrics live.
 
 This is for learning, not production. The Raft code is tested (unit + integration) and benchmarked.
 
 ## Try it
 
-```bash
-go run ./observatory --no-browser --compose-up observatory/scenarios/leader-failure.json
-```
-
-Open http://localhost:8080 for the observatory shell (scenario controls + embedded Grafana dashboard).
-
-Or run interactively:
+**Prerequisite:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) must be running (for Prometheus).
 
 ```bash
-go run ./observatory --no-browser
-docker compose -f monitoring/docker-compose.yml up
+go run ./observatory
 ```
+
+This single command:
+
+1. Starts Prometheus via Docker
+2. Boots a 5-node cluster and runs the full demo scenario
+3. Opens http://localhost:8080 with live cluster topology and native metrics charts
 
 Metrics reference: [docs/observability.md](docs/observability.md)
 
