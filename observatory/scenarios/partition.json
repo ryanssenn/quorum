@@ -1,0 +1,15 @@
+{
+  "name": "Network Partition",
+  "nodes": 5,
+  "steps": [
+    { "wait": "2s", "comment": "wait for election" },
+    { "put": { "node": "node1", "key": "part:1", "value": "baseline" } },
+    { "wait": "1s" },
+    { "partition": { "isolated": ["node1", "node2"] }, "comment": "isolate minority" },
+    { "wait": "1s" },
+    { "put": { "node": "node3", "key": "part:2", "value": "majority" } },
+    { "wait": "3s" },
+    { "clear_partition": true, "comment": "heal partition" },
+    { "wait": "3s" }
+  ]
+}

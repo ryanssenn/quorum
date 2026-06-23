@@ -1,0 +1,76 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1419;
+  color: #e6edf3;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #30363d;
+}
+.topbar h1 { margin: 0; font-size: 1.25rem; }
+.subtitle { margin: 0.25rem 0 0; color: #8b949e; font-size: 0.875rem; }
+.topbar-actions a { color: #58a6ff; margin-left: 1rem; text-decoration: none; }
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #30363d;
+}
+.control-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+label { font-size: 0.875rem; color: #8b949e; }
+.btn {
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.btn.primary { background: #238636; color: #fff; border-color: #238636; }
+.btn.secondary { background: #21262d; color: #e6edf3; }
+.btn.danger { background: #da3633; color: #fff; border-color: #da3633; }
+.btn.ghost { background: transparent; color: #8b949e; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.health { font-size: 0.875rem; color: #8b949e; margin-left: 0.5rem; }
+.health.ok { color: #3fb950; }
+.status-bar {
+  display: flex;
+  gap: 2rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.875rem;
+  color: #8b949e;
+  border-bottom: 1px solid #30363d;
+}
+.dashboard-wrap {
+  height: calc(100vh - 320px);
+  min-height: 480px;
+  padding: 0;
+}
+#grafana-dashboard {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #0d1117;
+}
+.log-panel {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #30363d;
+}
+.log-panel h2 { margin: 0 0 0.5rem; font-size: 0.875rem; color: #8b949e; }
+#event-log {
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: #8b949e;
+}

@@ -1,6 +1,6 @@
 # Testing & Correctness
 
-RaftDB validates its Raft implementation with unit tests (isolated logic) and integration tests (real multi-node clusters). The playground adds API tests for the control layer.
+RaftDB validates its Raft implementation with unit tests (isolated logic) and integration tests (real multi-node clusters). The observatory adds API tests for the scenario runner and metrics layer.
 
 ## Commands
 
@@ -11,11 +11,11 @@ go test -race -count=1 -timeout 5m ./core
 # Integration tests (5-node cluster)
 go test -count=1 -timeout 10m -v ./test
 
-# Playground control API
-go test -count=1 -timeout 5m ./visualizer/...
+# Observatory control API and metrics
+go test -count=1 -timeout 5m ./observatory/...
 ```
 
-CI runs unit tests with `-race`, integration tests with `-count=3`, and playground tests on every push.
+CI runs unit tests with `-race`, integration tests with `-count=3`, and observatory tests on every push.
 
 ## Unit tests (`core/node_test.go`)
 
@@ -46,17 +46,19 @@ All tests build the binary and launch a real 5-node cluster on ports 8001–8005
 | `TestWriteWhileNoLeader` | Writes fail without quorum |
 | `TestConcurrentWrites` | 100 concurrent writes all committed |
 
-## Playground tests (`visualizer/api_test.go`)
+## Observatory tests (`observatory/api_test.go`)
 
 | Test | Proves |
 |---|---|
-| `TestControlAPI` | Create/start/stop cluster, put/get, kill/restart, partition |
+| `TestObservatoryAPI` | Create/start/stop cluster, run scenario, node and cluster metrics |
 | `TestLoadScenarioPaths` | Scenario JSON validation |
 | `TestResolveScenarioPath` | Scenario path resolution from repo root |
+| `TestWritePrometheusTargets` | Dynamic Prometheus target file generation |
 
 ## What is not tested automatically
 
-- Browser UI rendering (manual verification)
+- Grafana dashboard rendering (manual verification)
+- Docker compose monitoring stack (manual verification)
 - Benchmark regression (run manually via `go run ./benchmarks`)
 - Log compaction / snapshots (not implemented)
 - Dynamic membership (not implemented)

@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: ryanDB
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets.json
+        refresh_interval: 5s
+
+  - job_name: observatory
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+        labels:
+          cluster: observatory

@@ -9,8 +9,10 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ryansenn/ryanDB/core"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var node *core.Node
@@ -37,6 +39,7 @@ func voteForStr() string {
 }
 
 func get(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	w.Header().Set("Content-Type", "text/plain")
 	key := r.URL.Query().Get("key")
 	cmd := core.NewCommand("get", key, "")
@@ -49,10 +52,13 @@ func get(w http.ResponseWriter, r *http.Request) {
 			Key:  key,
 		})
 	}
-	w.Write([]byte(node.HandleCommand(cmd)))
+	result := node.HandleCommand(cmd)
+	node.ObserveClientRequest("get", core.ClassifyClientResult("get", result), time.Since(start))
+	w.Write([]byte(result))
 }
 
 func put(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	w.Header().Set("Content-Type", "text/plain")
 	key := r.URL.Query().Get("key")
 	value := r.URL.Query().Get("value")
@@ -66,7 +72,9 @@ func put(w http.ResponseWriter, r *http.Request) {
 			Key:  key,
 		})
 	}
-	w.Write([]byte(node.HandleCommand(cmd)))
+	result := node.HandleCommand(cmd)
+	node.ObserveClientRequest("put", core.ClassifyClientResult("put", result), time.Since(start))
+	w.Write([]byte(result))
 }
 
 func status(w http.ResponseWriter, r *http.Request) {
@@ -167,6 +175,7 @@ func main() {
 	peersStr := flag.String("peers", "", "Comma-separated list of id=addr pairs (e.g., node1=localhost:8001,node2=localhost:8002,node3=localhost:8003)")
 	reset := flag.Bool("reset", false, "Reset logs and metadata")
 	noEvents := flag.Bool("no-events", false, "Disable debug event recording")
+	metrics := flag.Bool("metrics", true, "Expose Prometheus /metrics endpoint")
 
 	flag.Parse()
 
@@ -196,6 +205,14 @@ func main() {
 	http.HandleFunc("/events", events)
 	http.HandleFunc("/simulate/block", simulateBlock)
 	http.HandleFunc("/simulate/unblock", simulateUnblock)
+
+	if *metrics {
+		core.RegisterNodeMetrics(node)
+		http.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			node.RefreshMetrics()
+			promhttp.Handler().ServeHTTP(w, r)
+		}))
+	}
 
 	log.Fatalf("%s: %v", *id, http.ListenAndServe(":"+*port, nil))
 }

@@ -1,0 +1,13 @@
+{
+  "name": "Steady Writes",
+  "nodes": 5,
+  "steps": [
+    { "wait": "2s", "comment": "wait for election" },
+    { "put": { "node": "node1", "key": "load:1", "value": "a" }, "comment": "write burst" },
+    { "put": { "node": "node2", "key": "load:2", "value": "b" } },
+    { "put": { "node": "node3", "key": "load:3", "value": "c" } },
+    { "put": { "node": "node4", "key": "load:4", "value": "d" } },
+    { "put": { "node": "node5", "key": "load:5", "value": "e" } },
+    { "wait": "3s" }
+  ]
+}

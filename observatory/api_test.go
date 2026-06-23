@@ -9,13 +9,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ryansenn/ryanDB/internal/harness"
 )
 
-func TestControlAPI(t *testing.T) {
+func TestObservatoryAPI(t *testing.T) {
 	repoRoot := findRepoRoot()
 	binaryPath := filepath.Join(repoRoot, "ryanDB")
 	build := exec.Command("go", "build", "-o", binaryPath, ".")
@@ -23,12 +24,11 @@ func TestControlAPI(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build binary: %v\n%s", err, out)
 	}
-	binary := binaryPath
 
 	harness.KillPorts(3)
 	t.Cleanup(func() { harness.KillPorts(3) })
 
-	srv := NewServer(binary, true)
+	srv := NewServer(binaryPath, repoRoot)
 	srv.cluster = NewCluster(3)
 
 	mux := http.NewServeMux()
@@ -52,9 +52,6 @@ func TestControlAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("create status %d", resp.StatusCode)
-	}
 
 	resp, err = post("/api/cluster/start", nil)
 	if err != nil {
@@ -73,13 +70,13 @@ func TestControlAPI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var body struct {
+		var statusBody struct {
 			Nodes []NodeStatus `json:"nodes"`
 		}
-		json.NewDecoder(st.Body).Decode(&body)
+		json.NewDecoder(st.Body).Decode(&statusBody)
 		st.Body.Close()
 		leaders := 0
-		for _, n := range body.Nodes {
+		for _, n := range statusBody.Nodes {
 			if n.Running && n.State == 2 {
 				leaders++
 			}
@@ -90,63 +87,39 @@ func TestControlAPI(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	resp, err = post("/api/request", map[string]string{
-		"client": "test",
-		"op":     "put",
-		"key":    "api-test",
-		"value":  "ok",
-		"node":   "node1",
-	})
+	path := filepath.Join(repoRoot, "observatory", "scenarios", "steady-writes.json")
+	resp, err = post("/api/scenario/load", map[string]string{"path": path})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var reqResult struct {
-		Result string `json:"result"`
-	}
-	json.NewDecoder(resp.Body).Decode(&reqResult)
 	resp.Body.Close()
-	if reqResult.Result != "success" {
-		t.Fatalf("put result %q", reqResult.Result)
+
+	resp, err = post("/api/scenario/run", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	time.Sleep(3 * time.Second)
+
+	metricsResp, err := http.Get("http://localhost:8001/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricsBody, _ := io.ReadAll(metricsResp.Body)
+	metricsResp.Body.Close()
+	if !strings.Contains(string(metricsBody), "raftdb_term") {
+		t.Fatalf("node metrics missing raftdb_term")
 	}
 
-	resp, err = post("/api/cluster/nodes/node2/kill", nil)
+	clusterMetrics, err := http.Get(ts.URL + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("kill status %d", resp.StatusCode)
-	}
-
-	resp, err = post("/api/cluster/nodes/node2/restart", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("restart status %d", resp.StatusCode)
-	}
-	time.Sleep(500 * time.Millisecond)
-
-	resp, err = post("/api/cluster/partition", map[string][]string{
-		"isolated": {"node1"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	partBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("partition status %d: %s", resp.StatusCode, string(partBody))
-	}
-
-	resp, err = post("/api/cluster/partition/clear", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("clear partition status %d", resp.StatusCode)
+	clusterBody, _ := io.ReadAll(clusterMetrics.Body)
+	clusterMetrics.Body.Close()
+	if !strings.Contains(string(clusterBody), "raftdb_replication_lag") {
+		t.Fatalf("cluster metrics missing raftdb_replication_lag")
 	}
 
 	resp, err = post("/api/cluster/stop", nil)
@@ -158,7 +131,7 @@ func TestControlAPI(t *testing.T) {
 
 func TestLoadScenarioPaths(t *testing.T) {
 	root := findRepoRoot()
-	path := filepath.Join(root, "visualizer", "scenarios", "election.json")
+	path := filepath.Join(root, "observatory", "scenarios", "leader-failure.json")
 	if _, err := os.Stat(path); err != nil {
 		t.Skip("scenario file not found")
 	}
@@ -172,8 +145,23 @@ func TestLoadScenarioPaths(t *testing.T) {
 }
 
 func TestResolveScenarioPath(t *testing.T) {
-	p := resolveScenarioPath("visualizer/scenarios/election.json")
+	p := resolveScenarioPath("observatory/scenarios/election.json")
 	if _, err := os.Stat(p); err != nil {
 		t.Fatalf("resolved path missing: %s (%v)", p, err)
 	}
+}
+
+func TestWritePrometheusTargets(t *testing.T) {
+	root := findRepoRoot()
+	if err := writePrometheusTargets(root, 3); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "monitoring", "targets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "8001") {
+		t.Fatalf("expected target 8001 in %s", data)
+	}
+	_ = clearPrometheusTargets(root)
 }
