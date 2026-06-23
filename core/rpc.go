@@ -135,14 +135,17 @@ func (s *server) RequestVote(ctx context.Context, req *pb.VoteRequest) (*pb.Vote
 	resp := pb.VoteResponse{Term: s.node.Term.Load(), VoteGranted: false}
 
 	if s.node.voteFor() != "" && s.node.voteFor() != req.CandidateId {
+		s.node.RecordRequestVote("denied")
 		return &resp, nil
 	}
 
 	if s.node.Term.Load() > req.Term {
+		s.node.RecordRequestVote("denied")
 		return &resp, nil
 	}
 
 	if s.node.GetLogTerm(-1) > req.LastLogTerm || (s.node.GetLogTerm(-1) == req.LastLogTerm && int64(len(s.node.Log))-1 > req.LastLogIndex) {
+		s.node.RecordRequestVote("denied")
 		return &resp, nil
 	}
 
@@ -150,6 +153,7 @@ func (s *server) RequestVote(ctx context.Context, req *pb.VoteRequest) (*pb.Vote
 	storeString(&s.node.VoteFor, req.CandidateId)
 	s.node.Logger.WriteMeta(s.node.Term.Load(), req.CandidateId)
 	s.node.ReceiveHeartbeat()
+	s.node.RecordRequestVote("granted")
 	s.node.recordEvent(Event{
 		Type:   "request_vote",
 		From:   s.node.Id,

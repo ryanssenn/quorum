@@ -1,0 +1,17 @@
+{
+  "name": "Recovery",
+  "nodes": 5,
+  "steps": [
+    { "wait": "2s", "comment": "wait for election" },
+    { "put": { "node": "node1", "key": "rec:1", "value": "one" } },
+    { "put": { "node": "node2", "key": "rec:2", "value": "two" } },
+    { "put": { "node": "node3", "key": "rec:3", "value": "three" } },
+    { "wait": "1s" },
+    { "kill": "leader", "comment": "kill leader" },
+    { "wait": "3s" },
+    { "put": { "node": "node4", "key": "rec:4", "value": "four" } },
+    { "wait": "2s" },
+    { "restart": "killed" },
+    { "wait": "4s", "comment": "watch lag decay" }
+  ]
+}

@@ -333,6 +333,7 @@ func (n *Node) StartElectionTimer() {
 func (n *Node) StartElection() {
 	storeString(&n.VoteFor, n.Id)
 	n.Term.Add(1)
+	n.RecordElection()
 	n.Logger.WriteMeta(n.Term.Load(), n.voteFor())
 	n.State = Candidate
 	n.recordEvent(Event{

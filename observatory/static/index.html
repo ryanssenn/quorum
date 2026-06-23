@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Raft Observatory</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Raft Observatory</h1>
+      <p class="subtitle">Live metrics for a real Raft cluster</p>
+    </div>
+    <div class="topbar-actions">
+      <a id="grafana-link" href="http://localhost:3000/d/raft-observatory/raft-observatory" target="_blank" rel="noopener">Open Grafana</a>
+      <a href="http://localhost:9090" target="_blank" rel="noopener">Prometheus</a>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="control-group">
+      <label>Nodes <input type="range" id="node-count" min="3" max="9" value="5"><output id="node-count-val">5</output></label>
+      <button id="btn-create" class="btn secondary">Configure</button>
+      <button id="btn-start" class="btn primary">Start</button>
+      <button id="btn-stop" class="btn danger" disabled>Stop</button>
+      <span id="cluster-health" class="health">Not started</span>
+    </div>
+    <div class="control-group">
+      <label>Scenario
+        <select id="scenario-select">
+          <option value="">Choose...</option>
+          <option value="observatory/scenarios/steady-writes.json">Steady writes</option>
+          <option value="observatory/scenarios/leader-failure.json">Leader failure</option>
+          <option value="observatory/scenarios/partition.json">Network partition</option>
+          <option value="observatory/scenarios/recovery.json">Recovery</option>
+          <option value="observatory/scenarios/election.json">Leader election</option>
+        </select>
+      </label>
+      <button id="btn-load" class="btn secondary">Load</button>
+      <button id="btn-run" class="btn primary" disabled>Run</button>
+      <button id="btn-pause" class="btn ghost" disabled>Pause</button>
+      <span id="scenario-status" class="health">No scenario</span>
+    </div>
+  </section>
+
+  <section class="status-bar">
+    <span>Leader: <strong id="stat-leader">-</strong></span>
+    <span>Term: <strong id="stat-term">-</strong></span>
+    <span>Commit: <strong id="stat-commit">-</strong></span>
+    <span>Running: <strong id="stat-running">-</strong></span>
+  </section>
+
+  <section class="dashboard-wrap">
+    <iframe id="grafana-dashboard" title="Raft metrics dashboard" src="about:blank"></iframe>
+  </section>
+
+  <section class="log-panel">
+    <h2>Scenario log</h2>
+    <div id="event-log"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

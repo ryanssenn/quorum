@@ -209,7 +209,6 @@ func (srv *Server) runScenario() {
 		srv.done = false
 		srv.err = ""
 		srv.stepIndex = 0
-		srv.eventSince = map[string]int64{}
 		srv.lastKilled = ""
 		srv.mu.Unlock()
 
@@ -222,6 +221,7 @@ func (srv *Server) runScenario() {
 			srv.stepIndex = i
 			srv.currentDesc = step.Description()
 			srv.mu.Unlock()
+			srv.annotateStep(step.Description())
 
 			if err := srv.executeStep(step); err != nil {
 				srv.mu.Lock()

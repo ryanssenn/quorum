@@ -102,15 +102,6 @@ func (n *ClusterNode) Restart(binary string) error {
 	return n.Start(binary, "false")
 }
 
-func (c *Cluster) Resize(n int) error {
-	if n < 3 || n > 9 {
-		return fmt.Errorf("nodes must be between 3 and 9, got %d", n)
-	}
-	c.StopAll()
-	c.Nodes = NewCluster(n).Nodes
-	return nil
-}
-
 func (c *Cluster) NodeByID(id string) *ClusterNode {
 	for _, node := range c.Nodes {
 		if node.ID == id {
@@ -162,11 +153,51 @@ func countLeader(c *Cluster) (*ClusterNode, int) {
 	return leader, count
 }
 
+func (c *Cluster) SetPartition(isolated []string) error {
+	isolatedSet := map[string]bool{}
+	for _, id := range isolated {
+		isolatedSet[id] = true
+	}
+	for _, node := range c.Nodes {
+		if !node.Running {
+			continue
+		}
+		if err := unblockAll(node.Port); err != nil {
+			return err
+		}
+		for _, peer := range c.Nodes {
+			if peer.ID == node.ID {
+				continue
+			}
+			nodeIsolated := isolatedSet[node.ID]
+			peerIsolated := isolatedSet[peer.ID]
+			if nodeIsolated != peerIsolated {
+				if err := blockPeer(node.Port, peer.ID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Cluster) ClearPartition() error {
+	for _, node := range c.Nodes {
+		if !node.Running {
+			continue
+		}
+		if err := unblockAll(node.Port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ensureBinary(repoRoot, binaryPath string) (string, error) {
 	if binaryPath != "" {
 		return binaryPath, nil
 	}
-	path := repoRoot + "/ryanDB"
+	path := filepath.Join(repoRoot, "ryanDB")
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
@@ -206,4 +237,14 @@ func openBrowser(url string) {
 			return
 		}
 	}
+}
+
+func startCompose(repoRoot string) error {
+	cmd := exec.Command("docker", "compose", "-f", "monitoring/docker-compose.yml", "up", "-d")
+	cmd.Dir = repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker compose: %w\n%s", err, out)
+	}
+	return nil
 }

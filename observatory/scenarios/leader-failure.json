@@ -1,0 +1,15 @@
+{
+  "name": "Leader Failure",
+  "nodes": 5,
+  "steps": [
+    { "wait": "2s", "comment": "wait for election" },
+    { "put": { "node": "node1", "key": "fail:1", "value": "before" } },
+    { "wait": "1s" },
+    { "kill": "leader", "comment": "kill current leader" },
+    { "wait": "3s", "comment": "election in progress" },
+    { "put": { "node": "node2", "key": "fail:2", "value": "after" } },
+    { "wait": "2s" },
+    { "restart": "killed", "comment": "restart killed node" },
+    { "wait": "3s" }
+  ]
+}

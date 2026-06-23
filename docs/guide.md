@@ -1,6 +1,6 @@
 # RaftDB Internals Guide
 
-This guide explains what Raft is, how this project implements it, and how to read the Go source. For hands-on exploration, start with the [interactive playground](playground.md) (`go run ./visualizer --no-browser --sandbox`).
+This guide explains what Raft is, how this project implements it, and how to read the Go source. For hands-on exploration, start with the [observatory](observability.md) (`go run ./observatory --no-browser`).
 
 RaftDB is a learning project: it runs a real multi-node cluster, but it is not a production database.
 
@@ -161,19 +161,19 @@ Read in this order the first time you walk through the source. Allow 30–45 min
 6. **`core/node_test.go`**: Short tests that show commit/apply and voting rules in isolation.
 7. **`test/integration_test.go`**: Full cluster scenarios: election, replication, persistence, partitions.
 
-Optional after that: the [interactive playground](playground.md) for hands-on experimentation, and `benchmarks/` for throughput and latency numbers.
+Optional after that: the [observatory](observability.md) for live metrics during scenario runs, and `benchmarks/` for throughput and latency numbers.
 
 ---
 
 ## How to explore
 
-**Interactive playground (recommended).**
+**Observatory (recommended).**
 
 ```bash
-go run ./visualizer --no-browser --sandbox
+go run ./observatory --no-browser --compose-up observatory/scenarios/leader-failure.json
 ```
 
-Configure a cluster, send writes, kill nodes, and simulate partitions in the browser. See [playground.md](playground.md).
+Run scenarios against a real cluster and watch Raft metrics in Grafana. See [observability.md](observability.md).
 
 **Run a cluster manually.** Build and start three nodes as shown in the [README](../README.md). Send writes to any node; reads and writes reach the leader automatically.
 
@@ -189,13 +189,13 @@ go test -v ./test
 go test -v ./core
 ```
 
-**Guided tour.**
+**Scenario-driven demo.**
 
 ```bash
-go run ./visualizer --no-browser visualizer/scenarios/showcase.json
+go run ./observatory --no-browser observatory/scenarios/steady-writes.json
 ```
 
-Auto-runs a lifecycle scenario with live visualization. See [visualizer/README.md](../visualizer/README.md) for other tours.
+Auto-starts a cluster and runs the scenario. See [observatory/README.md](../observatory/README.md) for other scenarios.
 
 ---
 
