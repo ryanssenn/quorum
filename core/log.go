@@ -27,6 +27,15 @@ type MetaData struct {
 	VotedFor string
 }
 
+// Snapshot is a point-in-time capture of the state machine plus the Raft
+// coordinates of the last log entry it includes. Everything at or below
+// LastIncludedIndex can be dropped from the log once this is persisted.
+type Snapshot struct {
+	LastIncludedIndex int64
+	LastIncludedTerm  int64
+	Data              map[string]string
+}
+
 func NewCommand(op string, key string, value string) *Command {
 	return &Command{Op: op, Key: key, Value: value}
 }
@@ -74,6 +83,12 @@ func (l *Logger) ClearData() {
 		log.Fatal(err)
 	}
 	l.logFile.Seek(0, io.SeekStart)
+	l.offset = nil
+
+	// Reset must also drop any snapshot, otherwise a fresh node inherits a stale
+	// snapshot base and its new entries are mapped to the wrong absolute indices.
+	os.Remove("logs/" + l.Id + ".snap")
+	os.Remove("logs/" + l.Id + ".snap.tmp")
 
 	l.metaMu.Lock()
 	defer l.metaMu.Unlock()
@@ -126,6 +141,75 @@ func (l *Logger) Sync() {
 	defer l.syncMu.Unlock()
 	if !l.dirty {
 		return
+	}
+	if err := l.logFile.Sync(); err != nil {
+		log.Fatalf("%s sync log: %v", l.Id, err)
+	}
+	l.dirty = false
+}
+
+// WriteSnapshot persists a snapshot atomically (write temp, fsync, rename) so a
+// crash never leaves a half-written snapshot file.
+func (l *Logger) WriteSnapshot(snap *Snapshot) {
+	data, err := json.Marshal(snap)
+	if err != nil {
+		log.Fatalf("%s marshal snapshot: %v", l.Id, err)
+	}
+	tmp := "logs/" + l.Id + ".snap.tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		log.Fatalf("%s create snapshot: %v", l.Id, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		log.Fatalf("%s write snapshot: %v", l.Id, err)
+	}
+	if err := f.Sync(); err != nil {
+		log.Fatalf("%s sync snapshot: %v", l.Id, err)
+	}
+	f.Close()
+	if err := os.Rename(tmp, "logs/"+l.Id+".snap"); err != nil {
+		log.Fatalf("%s rename snapshot: %v", l.Id, err)
+	}
+}
+
+// LoadSnapshot returns the persisted snapshot, or nil if none exists.
+func (l *Logger) LoadSnapshot() *Snapshot {
+	data, err := os.ReadFile("logs/" + l.Id + ".snap")
+	if err != nil {
+		return nil
+	}
+	var snap Snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		log.Printf("%s load snapshot: %v", l.Id, err)
+		return nil
+	}
+	return &snap
+}
+
+// Rewrite replaces the entire on-disk log with the given entries (the tail kept
+// after compaction, or the empty tail after installing a snapshot) and rebuilds
+// the offset table. Callers hold the node's LogMu so no append races this.
+func (l *Logger) Rewrite(entries []*LogEntry) {
+	l.syncMu.Lock()
+	defer l.syncMu.Unlock()
+
+	if err := l.logFile.Truncate(0); err != nil {
+		log.Fatalf("%s truncate log: %v", l.Id, err)
+	}
+	if _, err := l.logFile.Seek(0, io.SeekStart); err != nil {
+		log.Fatalf("%s seek log: %v", l.Id, err)
+	}
+
+	l.offset = nil
+	for _, entry := range entries {
+		pos, err := l.logFile.Seek(0, io.SeekEnd)
+		if err != nil {
+			log.Fatalf("%s %s", l.Id, err)
+		}
+		if _, err := l.logFile.Write(encodeLogEntry(entry)); err != nil {
+			log.Fatalf("%s %s", l.Id, err)
+		}
+		l.offset = append(l.offset, pos)
 	}
 	if err := l.logFile.Sync(); err != nil {
 		log.Fatalf("%s sync log: %v", l.Id, err)

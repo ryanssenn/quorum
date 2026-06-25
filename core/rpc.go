@@ -123,6 +123,71 @@ func (s *server) AppendEntries(ctx context.Context, req *pb.AppendRequest) (*pb.
 	return &resp, nil
 }
 
+func (s *server) InstallSnapshot(ctx context.Context, req *pb.SnapshotRequest) (*pb.SnapshotResponse, error) {
+	n := s.node
+	resp := &pb.SnapshotResponse{Term: n.Term.Load()}
+
+	if n.Term.Load() > req.Term {
+		return resp, nil
+	}
+
+	n.ReceiveHeartbeat()
+	storeString(&n.LeaderId, req.LeaderId)
+
+	if req.Term > n.Term.Load() {
+		n.Term.Store(req.Term)
+		n.Logger.WriteMeta(n.Term.Load(), n.voteFor())
+		n.State = Follower
+	}
+
+	// Ignore a snapshot we have already covered.
+	if req.LastIncludedIndex <= n.SnapshotIndex.Load() {
+		resp.Term = n.Term.Load()
+		return resp, nil
+	}
+
+	var state map[string]string
+	if err := json.Unmarshal(req.Data, &state); err != nil {
+		resp.Term = n.Term.Load()
+		return resp, nil
+	}
+
+	// Serialize against apply so LastApplied/CommitIndex and the log are replaced
+	// atomically. The whole in-memory log is discarded; the leader re-replicates
+	// any tail beyond the snapshot through normal AppendEntries.
+	n.ApplyMu.Lock()
+	n.LogMu.Lock()
+	n.Log = nil
+	n.SnapshotIndex.Store(req.LastIncludedIndex)
+	n.SnapshotTerm.Store(req.LastIncludedTerm)
+	n.snapshotData = req.Data
+	n.Storage.Restore(state)
+	n.Logger.WriteSnapshot(&Snapshot{
+		LastIncludedIndex: req.LastIncludedIndex,
+		LastIncludedTerm:  req.LastIncludedTerm,
+		Data:              state,
+	})
+	n.Logger.Rewrite(nil)
+	n.LogMu.Unlock()
+	if req.LastIncludedIndex > n.CommitIndex.Load() {
+		n.CommitIndex.Store(req.LastIncludedIndex)
+	}
+	n.LastApplied.Store(req.LastIncludedIndex)
+	n.ApplyMu.Unlock()
+	n.ApplyCond.Broadcast()
+
+	n.recordEvent(Event{
+		Type:    "install_snapshot",
+		From:    req.LeaderId,
+		To:      n.Id,
+		Term:    n.Term.Load(),
+		Entries: int(req.LastIncludedIndex + 1),
+	})
+
+	resp.Term = n.Term.Load()
+	return resp, nil
+}
+
 func (s *server) RequestVote(ctx context.Context, req *pb.VoteRequest) (*pb.VoteResponse, error) {
 	if s.node.Term.Load() < req.Term {
 		s.node.ReceiveHeartbeat()
@@ -144,7 +209,7 @@ func (s *server) RequestVote(ctx context.Context, req *pb.VoteRequest) (*pb.Vote
 		return &resp, nil
 	}
 
-	if s.node.GetLogTerm(-1) > req.LastLogTerm || (s.node.GetLogTerm(-1) == req.LastLogTerm && int64(len(s.node.Log))-1 > req.LastLogIndex) {
+	if s.node.GetLogTerm(-1) > req.LastLogTerm || (s.node.GetLogTerm(-1) == req.LastLogTerm && int64(s.node.GetLogSize()-1) > req.LastLogIndex) {
 		s.node.RecordRequestVote("denied")
 		return &resp, nil
 	}

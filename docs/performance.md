@@ -4,6 +4,13 @@ This document outlines realistic ways to improve Quorum throughput and latency. 
 
 Quorum is an educational project. Many of these changes add complexity or weaken durability guarantees. They are listed here as a roadmap, not as a mandate to turn this into a production database.
 
+Status legend used throughout this document:
+
+- **[done]** implemented and benchmarked; see [OPTIMIZATIONS.md](../OPTIMIZATIONS.md) for measured results.
+- **[planned]** not yet implemented; described here as a roadmap item.
+
+Already implemented on the write path: group commit / batched fsync, a single fsync per batch (deduplicated across replicators), removing the per-round replication sleep, waking replicators immediately on append, caching the serialized form of each log entry so it is marshaled once, removing the post-mismatch replication backoff, and bounding `AppendEntries` payloads so a far-behind follower catches up in steady batches. The remaining items below are the genuinely outstanding work.
+
 ---
 
 ## Current baseline
@@ -30,7 +37,7 @@ Each log append in [`core/log.go`](../core/log.go) calls `logFile.Sync()` after 
 
 ### Possible improvements
 
-**Batch persistence.** Buffer several log entries in memory and call `Sync()` once per batch (group commit). This is how many databases amortize disk cost. Trade-off: a crash may lose the un-synced tail of the batch unless you accept weaker durability or use battery-backed storage.
+**Batch persistence. [done]** Buffer several log entries in memory and call `Sync()` once per batch (group commit). This is how many databases amortize disk cost. Trade-off: a crash may lose the un-synced tail of the batch unless you accept weaker durability or use battery-backed storage. Quorum buffers writes and fsyncs once per replication batch, deduplicating the sync across follower replicators with a `dirty` flag.
 
 **Separate append and sync.** Append entries quickly, sync on a timer or when a byte/time threshold is reached. Requires careful recovery logic so replay after crash does not double-apply or miss entries.
 
@@ -40,7 +47,7 @@ Each log append in [`core/log.go`](../core/log.go) calls `logFile.Sync()` after 
 
 | Change | Expected impact | Complexity | Durability impact |
 |---|---|---|---|
-| Group commit (batch fsync) | High on write latency floor | Medium | Configurable |
+| Group commit (batch fsync) **[done]** | High on write latency floor | Medium | Configurable |
 | Async / delayed fsync | High | High | Weaker unless bounded |
 | Binary log encoding | Low to medium | Medium | None |
 
@@ -54,31 +61,34 @@ The leader in [`core/leader.go`](../core/leader.go):
 
 - Appends one client command per log entry.
 - Runs one goroutine per follower in `ReplicateToFollower`.
-- Sends `AppendEntries` with all pending entries for that follower, then sleeps 10 ms before the next round.
-- Blocks the client in `Commit()` until the entry is replicated to a majority and applied.
+- Sends `AppendEntries` with the pending entries for that follower (bounded by `maxEntriesPerAppend`), and only blocks on the idle path: when there is nothing to send it waits on `ReplicateNotify` or a short heartbeat timer, so a new append wakes it immediately.
+- Blocks the client in `Commit()` until the entry is replicated to a majority and applied. Each client request runs in its own goroutine, so many appends are in flight at once.
 
-JSON marshaling happens when building RPC payloads and again when persisting entries. Followers deserialize on receive.
+Each entry caches its serialized command (`LogEntry.Serialized`) so it is JSON-marshaled once at append time and reused for every replication RPC.
 
 ### Possible improvements
 
-**Remove or reduce the replication sleep.** The fixed 10 ms sleep caps how often each follower is contacted. Replacing it with immediate retry on failure, or a short backoff only after errors, would increase replication throughput under load.
+**Remove or reduce the replication sleep. [done]** The old fixed per-round sleep capped how often each follower was contacted. Replicators now sleep only when idle (no pending entries) and wake immediately on the next append.
+
+**Wake replicators on append. [done]** `notifyReplicators` signals idle follower goroutines as soon as a new entry is appended, instead of waiting for the next timer tick.
+
+**Serialize once. [done]** Commands are marshaled a single time and cached on the log entry, avoiding repeated JSON encoding on every replication step.
 
 **Batch client writes into fewer log entries.** A leader-side write buffer could combine multiple `put` requests into one `AppendEntries` round trip. Throughput scales with batch size until disk or network limits apply.
 
-**Pipeline commits on the leader.** Today one HTTP handler blocks in `Commit()` until its entry is done. Allowing multiple in-flight appends (each waiting on its own index) lets the leader accept new requests while earlier entries replicate. The state machine still applies in order.
+**Pipeline commits on the leader. [planned]** Today the fsync and the replication RPC sit in series on each replicator's hot path, and commit waiters are woken with a broadcast condition variable. Decoupling persistence (a dedicated fsync pipeline that publishes a durable index) from replication, and replacing the broadcast wakeups with targeted notification, lets disk and network progress in parallel and removes per-commit lock contention.
 
-**Serialize once.** Store commands in the log in the same encoding used on the wire (protobuf bytes) to avoid JSON marshal/unmarshal on every replication step.
-
-**Parallel append to disk and network.** Persist locally and send to followers concurrently where safe, rather than strictly serializing append-then-replicate for each entry.
+**Parallel append to disk and network. [planned]** Persist locally and send to followers concurrently where safe, rather than fsyncing before each replication send.
 
 **Tune RPC timeouts.** AppendEntries uses a 200 ms timeout. On LAN this is fine; on WAN, adaptive timeouts reduce false retries. On loopback, shorter timeouts with faster retry may reduce tail latency.
 
 | Change | Expected impact | Complexity |
 |---|---|---|
-| Remove 10 ms replication sleep | Medium to high write throughput | Low |
+| Remove per-round replication sleep **[done]** | Medium to high write throughput | Low |
+| Bounded `AppendEntries` batches **[done]** | Reliable follower catch-up | Low |
+| Single encoding for log + RPC **[done]** | Low to medium CPU | Medium |
 | Leader write batching | High write throughput | Medium |
 | Pipelined in-flight commits | High under concurrent clients | Medium |
-| Single encoding for log + RPC | Low to medium CPU | Medium |
 
 ---
 
@@ -110,29 +120,23 @@ Benchmarks already show reads near 70k ops/sec on one machine. Further gains are
 
 ---
 
-## 4. Log growth and recovery
+## 4. Log growth and recovery **[done]**
 
-### What is missing today
+### What was missing
 
-The README lists log compaction and snapshots as not implemented. The log grows without bound on disk and in memory.
+Originally the log grew without bound on disk and in memory; there was no compaction or snapshotting. Long-running clusters paid for it with larger catch-up messages, slower restart (as [`RecoverState`](../core/node.go) replayed the full log), and ever-growing disk I/O.
 
-### Why it matters for performance
+### What is implemented
 
-Performance is fine for short benchmarks. Long-running clusters pay for:
+**Snapshotting. [done]** A background compactor folds the applied prefix of the log into a state-machine snapshot once enough entries accumulate beyond the previous snapshot (`SnapshotThreshold`). See [`core/snapshot.go`](../core/snapshot.go).
 
-- Larger replication messages when followers catch up.
-- Slower restart and recovery as [`RecoverState`](../core/node.go) replays the full log.
-- More disk I/O over time.
+**Truncation after snapshot. [done]** The covered log prefix is dropped from memory and rewritten on disk; indices are tracked in absolute terms and remapped to the retained tail via `SnapshotIndex`. Recovery loads the snapshot and replays only the tail.
 
-### Possible improvements
+**Install snapshot on lagging followers. [done]** A new `InstallSnapshot` RPC lets the leader ship a snapshot to any follower whose `nextIndex` has fallen below the compacted prefix, instead of being unable to serve the missing entries.
 
-**Snapshotting.** Periodically compact applied entries into a snapshot; followers install snapshots when far behind. Standard Raft extension; significant implementation effort.
+These keep memory and disk bounded for long-lived deployments. On a 40,000-write / 500-key workload the on-disk log shrank ~30× (5.5 MB → 187 KB) and restart recovery roughly halved; see [OPTIMIZATIONS.md](../OPTIMIZATIONS.md). They improve steady-state and recovery rather than peak ops/sec on a fresh cluster.
 
-**Truncation after snapshot.** Drop log prefixes that are covered by the latest snapshot. Keeps memory and disk bounded.
-
-**Segmented log files.** Rotate `.rlog` files by size or time so compaction and fsync operate on smaller units.
-
-These changes improve steady-state and recovery more than peak ops/sec on a fresh cluster, but they are required for any long-lived deployment.
+**Segmented log files. [planned]** Rotating `.rlog` files by size or time (so compaction and fsync operate on smaller units) is still future work; compaction currently rewrites a single log file.
 
 ---
 
@@ -154,12 +158,12 @@ Not all performance work belongs inside the node process.
 
 A practical order if the goal is measurable improvement without rewriting Raft:
 
-1. **Group commit / batched fsync** (addresses the ~11 ms write floor).
-2. **Remove replication sleep and pipeline leader commits** (better throughput under concurrent writers).
-3. **Batch entries in AppendEntries** (fewer round trips per unit of work).
-4. **Single wire format for log and RPC** (lower CPU).
+1. **Group commit / batched fsync** **[done]** (addresses the write latency floor).
+2. **Remove replication sleep** **[done]** and **pipeline leader commits** **[planned]** (better throughput under concurrent writers).
+3. **Batch entries in AppendEntries** **[done]** (fewer round trips per unit of work).
+4. **Single wire format for log and RPC** (lower CPU; entries are already serialized once and cached).
 5. **Read path optimizations** (only if read load or leader CPU becomes the bottleneck).
-6. **Snapshots and compaction** (required for long-running clusters, less for benchmark peaks).
+6. **Snapshots and compaction** **[done]** (required for long-running clusters, less for benchmark peaks).
 
 ```mermaid
 flowchart TD

@@ -60,7 +60,7 @@ All tests build the binary and launch a real 5-node cluster on ports 8001-8005 /
 - Grafana dashboard rendering (manual verification)
 - Docker compose monitoring stack (manual verification)
 - Benchmark regression (run manually via `go run ./benchmarks`)
-- Log compaction / snapshots (not implemented)
+- Snapshot recovery sizing benchmark (run manually via `QUORUM_SNAPSHOT_BENCH=1 go test -run TestSnapshotRecoveryBench ./test`)
 - Dynamic membership (not implemented)
 
 ## Evidence of Raft conformance

@@ -61,10 +61,20 @@ type Node struct {
 	ApplyMu     sync.Mutex
 	NextIndex   map[string]*atomic.Int64
 	MatchIndex  map[string]*atomic.Int64
-	Log         []*LogEntry
-	LogMu       sync.Mutex
-	CommitCond  *sync.Cond
-	ApplyCond   *sync.Cond
+
+	// Log holds entries for absolute indices (SnapshotIndex, lastLogIndex]. Once
+	// the state machine has been snapshotted, everything at or below
+	// SnapshotIndex is dropped from Log and from disk. SnapshotIndex/SnapshotTerm
+	// are the Raft coordinates of the last entry folded into the snapshot, so
+	// index math throughout the code is in absolute terms and remapped to a Log
+	// slice offset via SnapshotIndex.
+	Log           []*LogEntry
+	LogMu         sync.Mutex
+	SnapshotIndex atomic.Int64
+	SnapshotTerm  atomic.Int64
+	snapshotData  []byte
+	CommitCond    *sync.Cond
+	ApplyCond     *sync.Cond
 
 	LeaderId           atomic.Pointer[string]
 	BlockedPeers       sync.Map
@@ -94,6 +104,8 @@ func NewNode(id string, peers map[string]string) *Node {
 	}
 	n.CommitIndex.Store(-1)
 	n.LastApplied.Store(-1)
+	n.SnapshotIndex.Store(-1)
+	n.SnapshotTerm.Store(0)
 	storeString(&n.VoteFor, "")
 	storeString(&n.LeaderId, "")
 
@@ -109,10 +121,20 @@ func (n *Node) Init() {
 	log.Printf("%s has been initialized.", n.Id)
 	n.StartServer()
 	n.StartClients()
+	go n.runCompactor()
 	n.StartElectionTimer()
 }
 
 func (n *Node) RecoverState() {
+	if snap := n.Logger.LoadSnapshot(); snap != nil {
+		n.SnapshotIndex.Store(snap.LastIncludedIndex)
+		n.SnapshotTerm.Store(snap.LastIncludedTerm)
+		n.Storage.Restore(snap.Data)
+		n.snapshotData, _ = json.Marshal(snap.Data)
+		n.CommitIndex.Store(snap.LastIncludedIndex)
+		n.LastApplied.Store(snap.LastIncludedIndex)
+	}
+
 	n.LogMu.Lock()
 	n.Log = n.Logger.LoadLogs()
 	n.LogMu.Unlock()
@@ -122,9 +144,9 @@ func (n *Node) RecoverState() {
 	storeString(&n.VoteFor, votedFor)
 
 	if len(n.Log) > 0 {
-		last := int64(len(n.Log) - 1)
+		last := n.SnapshotIndex.Load() + int64(len(n.Log))
 		n.CommitIndex.Store(last)
-		n.LastApplied.Store(-1)
+		n.LastApplied.Store(n.SnapshotIndex.Load())
 		n.ApplyCommitted()
 	}
 }
@@ -153,9 +175,18 @@ func (n *Node) AppendLogs(prevLogIndex int64, entries []*LogEntry) {
 	n.LogMu.Lock()
 	defer n.LogMu.Unlock()
 
-	n.Log = n.Log[:prevLogIndex+1]
+	// prevLogIndex is absolute; keep is the number of in-memory (relative)
+	// entries to retain before appending, i.e. entries (SnapshotIndex, prevLogIndex].
+	keep := prevLogIndex - n.SnapshotIndex.Load()
+	if keep < 0 {
+		keep = 0
+	}
+	if keep > int64(len(n.Log)) {
+		keep = int64(len(n.Log))
+	}
+	n.Log = n.Log[:keep]
 	n.Log = append(n.Log, entries...)
-	n.Logger.AppendLogs(entries, prevLogIndex+1)
+	n.Logger.AppendLogs(entries, keep)
 }
 
 func (n *Node) ApplyCommitted() {
@@ -181,23 +212,23 @@ func (n *Node) Get(key string) string {
 	return n.Storage.Get(key)
 }
 
+// GetLogSize returns the absolute log length (last absolute index + 1),
+// including entries already folded into the snapshot. Callers throughout the
+// code use GetLogSize()-1 as the last log index, so this stays in absolute
+// terms even after compaction.
 func (n *Node) GetLogSize() int {
 	n.LogMu.Lock()
 	defer n.LogMu.Unlock()
-	return len(n.Log)
+	return int(n.SnapshotIndex.Load()) + 1 + len(n.Log)
 }
 
 func (n *Node) GetLogTerm(index int) int64 {
 	n.LogMu.Lock()
 	defer n.LogMu.Unlock()
 	if index == -1 {
-		if len(n.Log) > 0 {
-			return n.Log[len(n.Log)-1].Term
-		}
-		return 0
+		return n.termAtLocked(n.lastLogIndexLocked())
 	}
-
-	return n.Log[index].Term
+	return n.termAtLocked(int64(index))
 }
 
 type LogEntryView struct {
@@ -218,11 +249,12 @@ func (n *Node) GetLogTail(tail int) []LogEntryView {
 	if start < 0 {
 		start = 0
 	}
+	base := n.SnapshotIndex.Load() + 1
 	out := make([]LogEntryView, 0, len(n.Log)-start)
 	for i := start; i < len(n.Log); i++ {
 		e := n.Log[i]
 		out = append(out, LogEntryView{
-			Index: int64(i),
+			Index: base + int64(i),
 			Term:  e.Term,
 			Op:    e.Command.Op,
 			Key:   e.Command.Key,
