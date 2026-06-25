@@ -39,6 +39,11 @@ import (
 // HTTP client (keep-alive, generous connection pool for concurrency sweeps)
 // ---------------------------------------------------------------------------
 
+// snapshotThresholdArg is passed to each node as --snapshot-threshold. The high
+// default disables compaction during throughput runs so results are comparable
+// across snapshot tuning.
+var snapshotThresholdArg int64
+
 var client = &http.Client{
 	Timeout: 20 * time.Second,
 	Transport: &http.Transport{
@@ -128,6 +133,9 @@ func (c *cluster) startProc(p *proc, reset string) error {
 	}
 	if c.noEvents {
 		args = append(args, "--no-events=true")
+	}
+	if snapshotThresholdArg > 0 {
+		args = append(args, fmt.Sprintf("--snapshot-threshold=%d", snapshotThresholdArg))
 	}
 	cmd := exec.Command(c.binary, args...)
 	logFile, err := os.Create(filepath.Join(c.logDir, p.id+".log"))
@@ -435,7 +443,10 @@ func main() {
 	preloadN := flag.Int("preload", 2000, "number of keys to preload for read tests")
 	outDir := flag.String("out", "", "output directory (default benchmarks/results)")
 	noEvents := flag.Bool("no-events", false, "pass --no-events to quorum nodes")
+	snapshotThreshold := flag.Int64("snapshot-threshold", 1<<60, "snapshot threshold passed to nodes; the high default keeps log compaction from firing mid-run so the benchmark isolates the consensus write path (compaction cost is measured separately by TestSnapshotRecoveryBench)")
 	flag.Parse()
+
+	snapshotThresholdArg = *snapshotThreshold
 
 	dur := *durFlag
 	if *quick {
