@@ -22,7 +22,7 @@ Metrics are documented in [docs/observability.md](docs/observability.md).
 
 The write path (consensus, log replication, and disk persistence) was profiled, optimized, and re-benchmarked after every change. An optimization was kept only if it produced a measurable, repeatable improvement; changes that didn't move the numbers were reverted.
 
-On a 3-node cluster at 64 concurrent clients, the optimization work took write throughput from 2,444 to 20,249 ops/s (8.3×) and write p99 latency from 60.19 ms to 6.09 ms (9.9×). Read throughput was unaffected (~69,000 ops/s): reads are served directly from the leader's state machine and never enter the Raft log.
+On a 3-node cluster at 64 concurrent clients, the optimization work took write throughput from 2,444 to 19,463 ops/s (8×) and write p99 latency from 60.19 ms to 6.09 ms (9.9×). Read throughput was unaffected (~72,000 ops/s): reads are served directly from the leader's state machine and never enter the Raft log.
 
 Full methodology, including the smaller tweaks and the changes that were tried and reverted, is in [OPTIMIZATIONS.md](OPTIMIZATIONS.md).
 
