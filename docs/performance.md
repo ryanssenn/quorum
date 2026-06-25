@@ -120,29 +120,23 @@ Benchmarks already show reads near 70k ops/sec on one machine. Further gains are
 
 ---
 
-## 4. Log growth and recovery **[planned]**
+## 4. Log growth and recovery **[done]**
 
-### What is missing today
+### What was missing
 
-Log compaction and snapshots are not implemented. The log grows without bound on disk and in memory.
+Originally the log grew without bound on disk and in memory; there was no compaction or snapshotting. Long-running clusters paid for it with larger catch-up messages, slower restart (as [`RecoverState`](../core/node.go) replayed the full log), and ever-growing disk I/O.
 
-### Why it matters for performance
+### What is implemented
 
-Performance is fine for short benchmarks. Long-running clusters pay for:
+**Snapshotting. [done]** A background compactor folds the applied prefix of the log into a state-machine snapshot once enough entries accumulate beyond the previous snapshot (`SnapshotThreshold`). See [`core/snapshot.go`](../core/snapshot.go).
 
-- Larger replication messages when followers catch up.
-- Slower restart and recovery as [`RecoverState`](../core/node.go) replays the full log.
-- More disk I/O over time.
+**Truncation after snapshot. [done]** The covered log prefix is dropped from memory and rewritten on disk; indices are tracked in absolute terms and remapped to the retained tail via `SnapshotIndex`. Recovery loads the snapshot and replays only the tail.
 
-### Possible improvements
+**Install snapshot on lagging followers. [done]** A new `InstallSnapshot` RPC lets the leader ship a snapshot to any follower whose `nextIndex` has fallen below the compacted prefix, instead of being unable to serve the missing entries.
 
-**Snapshotting.** Periodically compact applied entries into a snapshot; followers install snapshots when far behind. Standard Raft extension; significant implementation effort.
+These keep memory and disk bounded for long-lived deployments. On a 40,000-write / 500-key workload the on-disk log shrank ~30× (5.5 MB → 187 KB) and restart recovery roughly halved; see [OPTIMIZATIONS.md](../OPTIMIZATIONS.md). They improve steady-state and recovery rather than peak ops/sec on a fresh cluster.
 
-**Truncation after snapshot.** Drop log prefixes that are covered by the latest snapshot. Keeps memory and disk bounded.
-
-**Segmented log files.** Rotate `.rlog` files by size or time so compaction and fsync operate on smaller units.
-
-These changes improve steady-state and recovery more than peak ops/sec on a fresh cluster, but they are required for any long-lived deployment.
+**Segmented log files. [planned]** Rotating `.rlog` files by size or time (so compaction and fsync operate on smaller units) is still future work; compaction currently rewrites a single log file.
 
 ---
 
@@ -169,7 +163,7 @@ A practical order if the goal is measurable improvement without rewriting Raft:
 3. **Batch entries in AppendEntries** **[done]** (fewer round trips per unit of work).
 4. **Single wire format for log and RPC** (lower CPU; entries are already serialized once and cached).
 5. **Read path optimizations** (only if read load or leader CPU becomes the bottleneck).
-6. **Snapshots and compaction** **[planned]** (required for long-running clusters, less for benchmark peaks).
+6. **Snapshots and compaction** **[done]** (required for long-running clusters, less for benchmark peaks).
 
 ```mermaid
 flowchart TD

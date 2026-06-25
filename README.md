@@ -46,7 +46,7 @@ Results from a 3-node cluster on a single host ([full report](benchmarks/REPORT.
 
 ## Raft implementation
 
-An implementation of the Raft consensus algorithm from the original paper, with a simple in-memory key-value store built on top of the replicated log.
+An implementation of the Raft consensus algorithm from the original paper, with a simple in-memory key-value store built on top of the replicated log. Includes leader election, log replication, persistence, and log compaction via state-machine snapshots (with an `InstallSnapshot` RPC to catch up far-behind followers).
 
 Implementation guide: [docs/guide.md](docs/guide.md)
 
@@ -76,5 +76,5 @@ Each node exposes Prometheus metrics at `/metrics`. Disable metrics with `--metr
 
 ## Not yet implemented
 
-- Log compaction / snapshots
 - Dynamic cluster membership
+- Segmented log files (compaction rewrites a single log file)

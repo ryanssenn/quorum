@@ -168,6 +168,56 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 ---
 
+## Optimization 8: Pipelined commits on the leader (**NOT KEPT**)
+
+**Hypothesis:** Decoupling persistence from replication should raise write throughput. Three changes were implemented together:
+
+1. A dedicated *persister* goroutine that batches the `fsync` off each follower replicator's hot path and publishes a *durable index*.
+2. A **durability gate** in `UpdateCommitIndex`: the leader counts its own copy toward a quorum only up to the durable index, so the fsync can overlap with replication RPCs without ever committing a not-yet-durable entry.
+3. **Channel-generation** commit/apply notifications replacing the broadcast condition variables, so advancing the commit index no longer wakes and serializes every waiter (thundering herd).
+
+**Result (3-node cluster, development host, two runs each):**
+
+| Concurrency | baseline (run1 / run2) | pipelined (run1 / run2) |
+|---:|---:|---:|
+| 16 | 1,016 / 972 ops/s | 936 / 950 ops/s |
+| 64 | 3,241 / 3,124 ops/s | 3,137 / 3,314 ops/s |
+
+**Verdict:** No repeatable improvement — the two runs disagreed on the direction of the change and all deltas were inside ±5% run-to-run noise. The write path is already effectively pipelined: each client request runs in its own goroutine, and measured per-request latency tracks `concurrency / throughput` (Little's law), meaning requests already overlap. The added goroutine, durable-index gate, and notification machinery were complexity without payoff, so the change was **reverted**.
+
+---
+
+## Optimization 9: Snapshots + log compaction (**KEPT**)
+
+**Problem:** The log grew without bound in memory and on disk. A long-running cluster (especially one that rewrites a small key space) accumulates unbounded log entries even though the state machine stays small, and a restarting or far-behind node must replay or refetch the entire history.
+
+**Implementation:**
+- State-machine snapshot (`Engine.Snapshot`/`Restore`) plus log-prefix truncation once applied entries exceed `SnapshotThreshold` (`core/snapshot.go`).
+- Log indices are tracked in absolute terms and remapped to the retained tail via `SnapshotIndex`, so the rest of the consensus code is unchanged.
+- Atomic snapshot persistence + log rewrite (`core/log.go`); recovery loads the snapshot and replays only the tail (`RecoverState`).
+- New `InstallSnapshot` RPC: the leader ships a snapshot to any follower whose `nextIndex` has fallen below the compacted prefix (`core/rpc.go`, `core/snapshot.go`).
+
+**Files:** `node.proto`, `core/snapshot.go`, `core/log.go`, `core/node.go`, `core/leader.go`, `core/rpc.go`, `core/storage.go`, `main.go`
+
+**Result (3-node cluster, 40,000 writes over a 500-key working set):**
+
+| Metric | compaction off | compaction on |
+|---|---:|---:|
+| On-disk log (`.rlog`) | 5.5 MB | **187 KB** |
+| Snapshot file (`.snap`) | – | 8.7 KB |
+| In-memory log tail | 40,000 entries | **~1,317 entries** |
+| Restart recovery time | 201 ms | **101 ms** |
+
+**Verdict:** Throughput on a fresh cluster is unaffected (compaction runs in the background), but the on-disk log shrinks ~30× and restart recovery is ~2× faster — and both stay *bounded* as the cluster runs, instead of growing with every write. The gap widens with log size and downtime. Correctness is covered by a unit test (`TestSnapshotCompaction`) and an integration test (`TestSnapshotCatchUp`, which forces the leader to compact past a stopped follower and verifies it recovers via `InstallSnapshot`). Kept.
+
+Reproduce the table with:
+
+```bash
+QUORUM_SNAPSHOT_BENCH=1 go test -run TestSnapshotRecoveryBench -v -timeout 20m ./test
+```
+
+---
+
 ## Not implemented (tradeoffs for discussion)
 
 These items from `docs/performance.md` were considered but not implemented because they either require a larger refactor, change consistency/durability guarantees, or did not show measurable benefit in quick testing.
@@ -181,7 +231,6 @@ These items from `docs/performance.md` were considered but not implemented becau
 | **Follower-local reads (stale)** | High read throughput | Relaxed consistency; reads may return outdated values |
 | **Read index / leader leases** | Linearizable follower reads | Significant Raft extension; read path is already fast (~70k ops/s) |
 | **Binary / protobuf log encoding** | Lower CPU and disk bytes | Migration complexity; fsync dominated until batching is in place (now addressed) |
-| **Snapshots and log compaction** | Long-running cluster health | Large implementation effort; does not improve peak benchmark throughput on fresh clusters |
 | **Shorter election timeouts** | Faster failover | Increases false-election risk under load |
 | **HTTP → gRPC client protocol** | Modest latency reduction | API change; consensus cost dominates writes |
 

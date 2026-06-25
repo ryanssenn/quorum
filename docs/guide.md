@@ -203,9 +203,11 @@ Auto-starts a cluster and runs the scenario. See [playground/README.md](../playg
 
 Quorum deliberately stops where a production system would keep going:
 
-- **Log compaction / snapshots**: the log grows forever on disk.
 - **Dynamic membership**: peer list is fixed at startup.
 - **Full linearizable reads**: reads use a simplified leader-based path.
+- **Segmented log files**: compaction rewrites a single `.rlog` rather than rotating segments.
+
+Log compaction and snapshots *are* implemented: the applied prefix is folded into a snapshot, the log is truncated, and a far-behind follower is caught up with an `InstallSnapshot` RPC. See [`core/snapshot.go`](../core/snapshot.go).
 
 For performance numbers on a single machine, see [benchmarks/REPORT.md](../benchmarks/REPORT.md). That report is optional context, not required for understanding the code.
 
