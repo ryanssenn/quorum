@@ -57,9 +57,11 @@ type Node struct {
 }
 
 type Status struct {
-	State       int   `json:"state"`
-	Term        int64 `json:"term"`
-	LastApplied int64 `json:"lastApplied"`
+	State         int   `json:"state"`
+	Term          int64 `json:"term"`
+	LastApplied   int64 `json:"lastApplied"`
+	SnapshotIndex int64 `json:"snapshotIndex"`
+	LogLength     int   `json:"logLength"`
 }
 
 func (n *Node) TryStatus() (*Status, error) {
@@ -142,11 +144,19 @@ func NewNodes(n int) []*Node {
 	return nodes
 }
 
+// SnapshotThresholdArg, when > 0, is passed to each node as --snapshot-threshold
+// so tests can force log compaction without writing thousands of keys.
+var SnapshotThresholdArg int64
+
 func (n *Node) StartNode(t *testing.T, reset string) {
 	t.Helper()
 	buildBinary(t)
 
-	cmd := exec.Command(binary, "--id="+n.id, "--port="+n.port, "--peers="+n.peers, "--reset="+reset)
+	args := []string{"--id=" + n.id, "--port=" + n.port, "--peers=" + n.peers, "--reset=" + reset}
+	if SnapshotThresholdArg > 0 {
+		args = append(args, fmt.Sprintf("--snapshot-threshold=%d", SnapshotThresholdArg))
+	}
+	cmd := exec.Command(binary, args...)
 	cmd.Dir = repoRoot
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

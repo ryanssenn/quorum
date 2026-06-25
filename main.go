@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ryansenn/quorum/core"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/ryansenn/quorum/core"
 )
 
 var node *core.Node
@@ -94,18 +94,19 @@ func status(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]any{
-		"id":           node.Id,
-		"state":        node.State,
-		"stateName":    node.StateName(),
-		"term":         node.Term.Load(),
-		"leaderId":     leaderIDStr(),
-		"voteFor":      voteForStr(),
-		"commitIndex":  node.CommitIndex.Load(),
-		"lastApplied":  node.LastApplied.Load(),
-		"logLength":    node.GetLogSize(),
-		"matchIndex":   matchIndex,
-		"nextIndex":    nextIndex,
-		"blockedPeers": node.BlockedPeerList(),
+		"id":            node.Id,
+		"state":         node.State,
+		"stateName":     node.StateName(),
+		"term":          node.Term.Load(),
+		"leaderId":      leaderIDStr(),
+		"voteFor":       voteForStr(),
+		"commitIndex":   node.CommitIndex.Load(),
+		"lastApplied":   node.LastApplied.Load(),
+		"snapshotIndex": node.SnapshotIndex.Load(),
+		"logLength":     node.GetLogSize(),
+		"matchIndex":    matchIndex,
+		"nextIndex":     nextIndex,
+		"blockedPeers":  node.BlockedPeerList(),
 	})
 }
 
@@ -176,8 +177,11 @@ func main() {
 	reset := flag.Bool("reset", false, "Reset logs and metadata")
 	noEvents := flag.Bool("no-events", false, "Disable debug event recording")
 	metrics := flag.Bool("metrics", true, "Expose Prometheus /metrics endpoint")
+	snapshotThreshold := flag.Int64("snapshot-threshold", core.SnapshotThreshold, "Applied entries beyond the last snapshot before the log is compacted")
 
 	flag.Parse()
+
+	core.SnapshotThreshold = *snapshotThreshold
 
 	if *id == "" || *peersStr == "" {
 		fmt.Println("Usage: go run main.go --id=node1 --port=8001 --peers=node1=localhost:8001,node2=localhost:8002,node3=localhost:8003")

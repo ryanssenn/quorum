@@ -8,6 +8,7 @@ service Node {
   rpc RequestVote (VoteRequest) returns (VoteResponse);
   rpc AppendEntries (AppendRequest) returns (AppendResponse);
   rpc ForwardToLeader (Command) returns (CommandResponse);
+  rpc InstallSnapshot (SnapshotRequest) returns (SnapshotResponse);
 }
 
 message VoteRequest {
@@ -48,4 +49,16 @@ message Command {
 message CommandResponse {
   bool success = 1;
   bytes result = 2;
+}
+
+message SnapshotRequest {
+  int64 term = 1;
+  string leader_id = 2;
+  int64 last_included_index = 3;
+  int64 last_included_term = 4;
+  bytes data = 5;
+}
+
+message SnapshotResponse {
+  int64 term = 1;
 }

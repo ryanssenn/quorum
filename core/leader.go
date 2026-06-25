@@ -31,7 +31,7 @@ func (n *Node) AppendLog(cmd *Command) int {
 	if n.State == Leader {
 		n.notifyReplicators()
 	}
-	return len(n.Log) - 1
+	return int(n.SnapshotIndex.Load()) + len(n.Log)
 }
 
 func (n *Node) Commit(cmd *Command) {
@@ -69,20 +69,37 @@ func (n *Node) ReplicateToFollower(id string) {
 	var lastHeartbeatEvent time.Time
 	for n.State == Leader {
 		startIndex := n.NextIndex[id].Load()
+
+		// The follower needs an entry the leader has already compacted away.
+		// Ship the snapshot, then resume normal replication from just after it.
+		if startIndex <= n.SnapshotIndex.Load() {
+			if !n.sendSnapshot(id) {
+				select {
+				case <-n.ReplicateNotify:
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			continue
+		}
+
 		prevIndex := startIndex - 1
-		prevTerm := int64(0)
 		var snapshot []*LogEntry
 		n.LogMu.Lock()
-		if startIndex < int64(len(n.Log)) {
-			end := startIndex + maxEntriesPerAppend
+		si := n.SnapshotIndex.Load()
+		relStart := startIndex - si - 1
+		if relStart < 0 {
+			// Snapshot advanced under us; restart and take the snapshot branch.
+			n.LogMu.Unlock()
+			continue
+		}
+		if relStart < int64(len(n.Log)) {
+			end := relStart + maxEntriesPerAppend
 			if end > int64(len(n.Log)) {
 				end = int64(len(n.Log))
 			}
-			snapshot = append(snapshot, n.Log[startIndex:end]...)
+			snapshot = append(snapshot, n.Log[relStart:end]...)
 		}
-		if prevIndex >= 0 && prevIndex < int64(len(n.Log)) {
-			prevTerm = int64(n.Log[prevIndex].Term)
-		}
+		prevTerm := n.termAtLocked(prevIndex)
 		n.LogMu.Unlock()
 
 		var entries []*pb.LogEntry
@@ -219,7 +236,12 @@ func (n *Node) UpdateCommitIndex() {
 
 func (n *Node) ApplyLogEntry(index int64) {
 	n.LogMu.Lock()
-	cmd := n.Log[index].Command
+	rel := index - n.SnapshotIndex.Load() - 1
+	if rel < 0 || rel >= int64(len(n.Log)) {
+		n.LogMu.Unlock()
+		return
+	}
+	cmd := n.Log[rel].Command
 	switch cmd.Op {
 	case "put":
 		n.Storage.Put(cmd.Key, cmd.Value)
