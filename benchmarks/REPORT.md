@@ -4,7 +4,7 @@ Throughput, latency, and failover numbers for the replicated key-value store, me
 
 Every run uses closed-loop load: *N* worker goroutines each send a request, wait for the reply, and repeat for a 5-second window after warmup. Throughput is completed operations over wall time; latency is the per-request round trip. Read benchmarks preload 2,000 keys. Log compaction is turned off (a high `--snapshot-threshold`) so the write path reflects pure consensus cost; compaction is measured on its own in [OPTIMIZATIONS.md](../OPTIMIZATIONS.md).
 
-Environment: Cursor Cloud VM (4 vCPUs, 16 GB RAM), Go 1.24.0, all nodes as local processes over loopback. Absolute numbers are host-specific — the asymmetries and order-of-magnitude gaps are what carry over. Two things shape how to read the rest of this:
+Environment: Cursor Cloud VM (4 vCPUs, 16 GB RAM), Go 1.24.0, all nodes as local processes over loopback. Absolute numbers are host-specific; the asymmetries and order-of-magnitude gaps are what carry over. Two things shape how to read the rest of this:
 
 - **Loopback, not a network.** Replication never leaves the machine, so a real deployment adds inter-node RTT to every write and to failover.
 - **Closed-loop load hides the tail.** When the server slows, the clients slow with it, so the p99 figures here are closer to a lower bound than what an open-loop generator would show.
@@ -38,7 +38,7 @@ Reads run 3–12× faster than writes: a read is an in-memory map lookup on the 
 | 32 | 1.31 | 2.58 | 3.77 |
 | 64 | 2.05 | 3.71 | 5.95 |
 
-A write commits in well under a millisecond at low concurrency (p50 0.47 ms at one client) — it still has to replicate to a majority and fsync, but that path is fast on this host. The median stays sub-millisecond through 16 clients and the tail stretches under load (p99 5.95 ms at 64 clients) as writes queue behind shared disk syncs.
+A write commits in well under a millisecond at low concurrency (p50 0.47 ms at one client). It still has to replicate to a majority and fsync, but that path is fast on this host. The median stays sub-millisecond through 16 clients and the tail stretches under load (p99 5.95 ms at 64 clients) as writes queue behind shared disk syncs.
 
 ### Reads (GET, leader memory)
 
@@ -72,7 +72,7 @@ A write sent to a follower is forwarded to the leader over gRPC, costing ~24% th
 | 3 nodes | 13,815 | 1.0 | 3.0 |
 | 5 nodes | 11,546 | 1.3 | 3.2 |
 
-At 16 clients (leader-direct), three nodes sustain ~13.8k writes/sec versus ~11.5k at five — about 16% lower. The leader replicates in parallel and only waits for a majority (2 of 3 versus 3 of 5), but on this host the two extra local followers add enough replication and fsync load to show up. On a real network the gap would have a different shape: reaching a larger majority costs more round trips, but the followers no longer contend for the same local disk and CPU.
+At 16 clients (leader-direct), three nodes sustain ~13.8k writes/sec versus ~11.5k at five, about 16% lower. The leader replicates in parallel and only waits for a majority (2 of 3 versus 3 of 5), but on this host the two extra local followers add enough replication and fsync load to show up. On a real network the gap would have a different shape: reaching a larger majority costs more round trips, but the followers no longer contend for the same local disk and CPU.
 
 ## Failover
 
@@ -85,4 +85,4 @@ At 16 clients (leader-direct), three nodes sustain ~13.8k writes/sec versus ~11.
 | 3 | node2 → node1 | 2,142 |
 | Mean | | 1,401 |
 
-The leader is killed mid-load; recovery is the time from the kill until a write commits on a surviving node. It is dominated by the randomized **600–1000 ms** election timeout: a follower has to ride out its timeout before standing for election, and if the first round splits the vote another timeout elapses before a leader emerges. That makes the figure noisy — across repeated runs it landed anywhere from ~0.7 s (one clean election) to ~3.4 s (a split round plus a retry), averaging roughly 1.4 s here. No manual intervention is needed for writes to resume.
+The leader is killed mid-load; recovery is the time from the kill until a write commits on a surviving node. It is dominated by the randomized **600–1000 ms** election timeout: a follower has to ride out its timeout before standing for election, and if the first round splits the vote another timeout elapses before a leader emerges. That makes the figure noisy: across repeated runs it landed anywhere from ~0.7 s (one clean election) to ~3.4 s (a split round plus a retry), averaging roughly 1.4 s here. No manual intervention is needed for writes to resume.

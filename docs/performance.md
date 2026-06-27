@@ -23,7 +23,7 @@ On a single host with a 3-node cluster (see the benchmark report for full number
 | Reads (leader) | ~94k ops/sec | HTTP + in-memory map lookup |
 | Failover | ~1.4 s | Election timeout (600–1000 ms) |
 
-Writes are roughly 3–12× slower than reads, depending on concurrency. That gap is expected: every write goes through Raft and is persisted to disk before the client receives success. Reads on the leader skip consensus and disk. (Before the write-path optimization campaign, writes were far slower — ~2.4k ops/sec at 64 clients; see [OPTIMIZATIONS.md](../OPTIMIZATIONS.md).)
+Writes are roughly 3–12× slower than reads, depending on concurrency. That gap is expected: every write goes through Raft and is persisted to disk before the client receives success. Reads on the leader skip consensus and disk. (Before the write-path optimization campaign, writes were far slower: ~2.4k ops/sec at 64 clients; see [OPTIMIZATIONS.md](../OPTIMIZATIONS.md).)
 
 The sections below follow the write path first, since that is where most gain is available.
 
@@ -33,7 +33,7 @@ The sections below follow the write path first, since that is where most gain is
 
 ### What the code does today
 
-Log appends in [`core/log.go`](../core/log.go) are persisted with `fsync` before an entry is acknowledged. The original implementation called `logFile.Sync()` on every single append, which forced the operating system to flush to stable storage on every write — an ~11 ms latency floor at concurrency 1 on the original benchmark host, consistent with per-entry fsync. Group commit (now implemented — **[done]**, below) batches that into one `Sync()` per replication round, which is what the code does today.
+Log appends in [`core/log.go`](../core/log.go) are persisted with `fsync` before an entry is acknowledged. The original implementation called `logFile.Sync()` on every single append, which forced the operating system to flush to stable storage on every write, an ~11 ms latency floor at concurrency 1 on the original benchmark host, consistent with per-entry fsync. Group commit (now implemented, **[done]** below) batches that into one `Sync()` per replication round, which is what the code does today.
 
 ### Possible improvements
 
