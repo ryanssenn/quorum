@@ -90,7 +90,7 @@ func (s *server) AppendEntries(ctx context.Context, req *pb.AppendRequest) (*pb.
 	if req.Term > term {
 		s.node.Term.Store(req.Term)
 		s.node.Logger.WriteMeta(s.node.Term.Load(), s.node.voteFor())
-		s.node.State = Follower
+		s.node.SetState(Follower)
 	}
 
 	if s.node.GetLogSize()-1 < int(req.PrevLogIndex) {
@@ -137,7 +137,7 @@ func (s *server) InstallSnapshot(ctx context.Context, req *pb.SnapshotRequest) (
 	if req.Term > n.Term.Load() {
 		n.Term.Store(req.Term)
 		n.Logger.WriteMeta(n.Term.Load(), n.voteFor())
-		n.State = Follower
+		n.SetState(Follower)
 	}
 
 	// Ignore a snapshot we have already covered.
@@ -191,7 +191,7 @@ func (s *server) InstallSnapshot(ctx context.Context, req *pb.SnapshotRequest) (
 func (s *server) RequestVote(ctx context.Context, req *pb.VoteRequest) (*pb.VoteResponse, error) {
 	if s.node.Term.Load() < req.Term {
 		s.node.ReceiveHeartbeat()
-		s.node.State = Follower
+		s.node.SetState(Follower)
 		s.node.Term.Store(req.Term)
 		storeString(&s.node.VoteFor, "")
 		s.node.Logger.WriteMeta(s.node.Term.Load(), "")
@@ -230,7 +230,7 @@ func (s *server) RequestVote(ctx context.Context, req *pb.VoteRequest) (*pb.Vote
 }
 
 func (s *server) ForwardToLeader(ctx context.Context, command *pb.Command) (*pb.CommandResponse, error) {
-	if s.node.State == Follower {
+	if s.node.GetState() == Follower {
 		leaderID := s.node.leaderID()
 		if leaderID == "" {
 			return &pb.CommandResponse{Result: []byte("no leader elected yet")}, nil
@@ -248,7 +248,7 @@ func (s *server) ForwardToLeader(ctx context.Context, command *pb.Command) (*pb.
 	var res pb.CommandResponse
 	res.Success = true
 
-	if s.node.State == Candidate {
+	if s.node.GetState() == Candidate {
 		res.Success = false
 		return &res, nil
 	}

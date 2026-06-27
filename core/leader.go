@@ -39,7 +39,7 @@ func (n *Node) AppendLog(cmd *Command) int {
 	defer n.LogMu.Unlock()
 	n.Logger.AppendLog(entry)
 	n.Log = append(n.Log, entry)
-	if n.State == Leader {
+	if n.GetState() == Leader {
 		n.notifyReplicators()
 	}
 	return int(n.SnapshotIndex.Load()) + len(n.Log)
@@ -78,7 +78,7 @@ func (n *Node) StartReplicationWorkers() {
 
 func (n *Node) ReplicateToFollower(id string) {
 	var lastHeartbeatEvent time.Time
-	for n.State == Leader {
+	for n.GetState() == Leader {
 		startIndex := n.NextIndex[id].Load()
 
 		// The follower needs an entry the leader has already compacted away.

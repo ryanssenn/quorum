@@ -183,7 +183,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 | 16 | 9,836 – 12,710 (6 runs) | 10,750 – 14,688 (4 runs) |
 | 64 | 13,006 – 15,124 (6 runs) | 12,410 – 14,538 (4 runs) |
 
-**Verdict:** No repeatable improvement. The arms' ranges overlap heavily, and at peak concurrency (64 clients — the headline throughput number) the pipelined build is, if anything, slightly *lower*. The consistent pattern across time windows was a small shift of throughput from high to moderate concurrency, not a net gain. The write path is already effectively pipelined: each client request runs in its own goroutine, and per-request latency tracks `concurrency / throughput` (Little's law), so requests already overlap. The added persister goroutine, durable-index gate, and notification machinery were complexity without payoff, so the change was **reverted**.
+**Verdict:** No repeatable improvement. The arms' ranges overlap heavily, and at peak concurrency (64 clients, the headline throughput number) the pipelined build is, if anything, slightly *lower*. The consistent pattern across time windows was a small shift of throughput from high to moderate concurrency, not a net gain. The write path is already effectively pipelined: each client request runs in its own goroutine, and per-request latency tracks `concurrency / throughput` (Little's law), so requests already overlap. The added persister goroutine, durable-index gate, and notification machinery were complexity without payoff, so the change was **reverted**.
 
 ---
 
@@ -210,7 +210,7 @@ Write latency at concurrency 1 dropped from ~11 ms (fsync-dominated floor) to ~2
 
 **Verdict:** Kept. The on-disk log shrinks ~30×, restart recovery is ~2× faster, and both stay *bounded* as the cluster runs instead of growing with every write; the gap widens with log size and downtime.
 
-Compaction is not free: the snapshot write and log rewrite `fsync` while holding the apply/log locks, so under *sustained* writes at an aggressive threshold (2,000) it costs throughput and inflates tail latency — measured at 64 clients, ~27.4k → ~17.7k ops/s and p99 ~5 ms → ~46 ms. That cost is a tunable, orthogonal maintenance concern (a realistic threshold is far higher, and the pause could be removed by writing the snapshot off the lock), so the throughput benchmarks isolate the consensus write path by disabling compaction (`go run ./benchmarks` passes a high `--snapshot-threshold`); the compaction behavior is measured directly by the table above and `TestSnapshotRecoveryBench`.
+Compaction is not free: the snapshot write and log rewrite `fsync` while holding the apply/log locks, so under *sustained* writes at an aggressive threshold (2,000) it costs throughput and inflates tail latency: measured at 64 clients, ~27.4k → ~17.7k ops/s and p99 ~5 ms → ~46 ms. That cost is a tunable, orthogonal maintenance concern (a realistic threshold is far higher, and the pause could be removed by writing the snapshot off the lock), so the throughput benchmarks isolate the consensus write path by disabling compaction (`go run ./benchmarks` passes a high `--snapshot-threshold`); the compaction behavior is measured directly by the table above and `TestSnapshotRecoveryBench`.
 
 Correctness is covered by a unit test (`TestSnapshotCompaction`) and an integration test (`TestSnapshotCatchUp`, which forces the leader to compact past a stopped follower and verifies it recovers via `InstallSnapshot`). Kept.
 

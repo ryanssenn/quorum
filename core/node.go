@@ -48,11 +48,26 @@ const (
 	Leader    NodeState = 2
 )
 
+func (n *Node) GetState() NodeState {
+	return NodeState(n.state.Load())
+}
+
+func (n *Node) SetState(s NodeState) {
+	n.state.Store(int32(s))
+}
+
 type Node struct {
 	Id      string
 	Peers   map[string]string
 	Clients map[string]pb.NodeClient
-	State   NodeState
+
+	// state is the Raft role. It is read and written from several goroutines
+	// (election timer, RPC handlers, replication workers), so it must be
+	// accessed atomically via GetState/SetState. A plain field here races and,
+	// under the Go memory model, a follower's election-timer goroutine could
+	// keep observing a stale role and never call StartElection after the leader
+	// dies.
+	state atomic.Int32
 
 	Term        atomic.Int64
 	VoteFor     atomic.Pointer[string]
@@ -90,7 +105,6 @@ func NewNode(id string, peers map[string]string) *Node {
 		Id:                 id,
 		Peers:              peers,
 		Clients:            make(map[string]pb.NodeClient),
-		State:              Follower,
 		NextIndex:          make(map[string]*atomic.Int64),
 		MatchIndex:         make(map[string]*atomic.Int64),
 		Log:                make([]*LogEntry, 0),
@@ -152,11 +166,11 @@ func (n *Node) RecoverState() {
 }
 
 func (n *Node) HandleCommand(cmd *Command) string {
-	if n.State == Follower {
+	if n.GetState() == Follower {
 		return n.ForwardToLeader(cmd)
 	}
 
-	if n.State == Candidate {
+	if n.GetState() == Candidate {
 		return "Error: election"
 	}
 
@@ -265,7 +279,7 @@ func (n *Node) GetLogTail(tail int) []LogEntryView {
 }
 
 func (n *Node) StateName() string {
-	switch n.State {
+	switch n.GetState() {
 	case Follower:
 		return "follower"
 	case Candidate:
@@ -352,7 +366,7 @@ func (n *Node) StartElectionTimer() {
 	for {
 		select {
 		case <-timer.C:
-			if n.State == Follower {
+			if n.GetState() == Follower {
 				n.StartElection()
 			}
 			timer.Reset(randTimeout())
@@ -371,7 +385,7 @@ func (n *Node) StartElection() {
 	n.Term.Add(1)
 	n.RecordElection()
 	n.Logger.WriteMeta(n.Term.Load(), n.voteFor())
-	n.State = Candidate
+	n.SetState(Candidate)
 	n.recordEvent(Event{
 		Type:   "state_change",
 		From:   n.Id,
@@ -436,7 +450,7 @@ func (n *Node) StartElection() {
 	wg.Wait()
 
 	if int(yesVote) > len(n.Peers)/2 {
-		n.State = Leader
+		n.SetState(Leader)
 		n.recordEvent(Event{
 			Type:   "state_change",
 			From:   n.Id,
@@ -447,7 +461,7 @@ func (n *Node) StartElection() {
 		go n.StartReplicationWorkers()
 		log.Printf("%s becomes Leader for term %d", n.Id, n.Term.Load())
 	} else {
-		n.State = Follower
+		n.SetState(Follower)
 		n.recordEvent(Event{
 			Type:   "state_change",
 			From:   n.Id,

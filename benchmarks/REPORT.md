@@ -1,143 +1,88 @@
-# Quorum Benchmark Report
+# Quorum benchmarks
 
-Performance measurements for Quorum, the replicated in-memory key-value store in this repository. This report describes which metrics were chosen, how they were measured, and the results from a single-host test run.
+Throughput, latency, and failover numbers for the replicated key-value store, measured on a single host. Reproduce with `go run ./benchmarks` then `python3 benchmarks/plot.py` (options in [README.md](README.md)).
 
-Reproduce the run with `go run ./benchmarks` followed by `python3 benchmarks/plot.py`. See [`README.md`](README.md) for options.
+Every run uses closed-loop load: *N* worker goroutines each send a request, wait for the reply, and repeat for a 5-second window after warmup. Throughput is completed operations over wall time; latency is the per-request round trip. Read benchmarks preload 2,000 keys. Log compaction is turned off (a high `--snapshot-threshold`) so the write path reflects pure consensus cost; compaction is measured on its own in [OPTIMIZATIONS.md](../OPTIMIZATIONS.md).
 
----
+Environment: Cursor Cloud VM (4 vCPUs, 16 GB RAM), Go 1.24.0, all nodes as local processes over loopback. Absolute numbers are host-specific; the asymmetries and order-of-magnitude gaps are what carry over. Two things shape how to read the rest of this:
 
-## 1. Metrics and methodology
+- **Loopback, not a network.** Replication never leaves the machine, so a real deployment adds inter-node RTT to every write and to failover.
+- **Closed-loop load hides the tail.** When the server slows, the clients slow with it, so the p99 figures here are closer to a lower bound than what an open-loop generator would show.
 
-For a Raft-backed store, throughput and latency percentiles are the primary capacity metrics. Availability after leader failure matters for replicated systems. The table below lists each metric considered and whether it applies to Quorum.
-
-| Metric | Included | Rationale |
-|---|---|---|
-| Throughput (ops/sec) | Yes | Writes and reads follow different paths (consensus vs in-memory lookup on the leader), so each is measured separately. |
-| Latency percentiles (p50/p95/p99) | Yes | Percentiles are computed from the full set of per-request samples in each run window, not from averaged buckets. |
-| Write vs read asymmetry | Yes | Writes incur replication and persistence; reads on the leader do not. |
-| Concurrency scaling | Yes | Shows how throughput and latency change as concurrent clients increase. |
-| Failover recovery time | Yes | Time from leader failure until writes succeed again. |
-| Leader vs follower routing | Yes | Followers forward writes to the leader over gRPC; this measures any added cost. |
-| Cluster size (3 vs 5 nodes) | Yes | Compares replication fan-out and quorum size at a fixed load. |
-| Disk fsync isolation | Partial | Fsync is included in write latency but not measured in isolation. Group commit and deferred fsync batching reduce the per-write disk cost; the ~2 ms floor at concurrency 1 reflects batched persistence plus replication. |
-| Scan / range queries | No | No scan API. |
-| Consistency / staleness | No | Correctness is covered by the integration test suite (`test/`). |
-
-**Load generation.** The harness uses closed-loop load: each of *N* worker goroutines sends one request, waits for the response, and repeats for a fixed duration. Throughput is completed operations divided by wall time; latency is the round-trip time per request. Closed-loop load tends to under-report tail latency compared with open-loop generators when the server slows down (see [Limitations](#6-limitations)).
-
-**Other settings.** Each data point uses a 5 s measurement window after cluster warmup. Read benchmarks preload 2,000 keys. HTTP keep-alive and a large connection pool are enabled so results reflect store behavior rather than connection setup. Log compaction is disabled during these runs (the harness passes a high `--snapshot-threshold`) so the numbers isolate the consensus write path; the cost and benefit of compaction are measured separately by `TestSnapshotRecoveryBench` (see [OPTIMIZATIONS.md](../OPTIMIZATIONS.md)).
-
-**Environment.** Single host (Cursor Cloud VM, 4 vCPUs, 16 GB RAM), all nodes as local processes, Go 1.24.0. Absolute numbers depend on the host; relative comparisons and order-of-magnitude gaps are the main portable results.
-
----
-
-## 2. Throughput: reads vs writes
+## Reads vs writes
 
 ![Throughput vs concurrency](results/img/throughput_vs_concurrency.png)
 
-| Concurrency | Write ops/sec | Read ops/sec | Read / write ratio |
+| Concurrency | Write ops/sec | Read ops/sec | Ratio |
 |---:|---:|---:|---:|
-| 1 | 542 | 15,743 | 29 |
-| 4 | 2,293 | 45,073 | 20 |
-| 8 | 4,416 | 60,454 | 14 |
-| 16 | 7,501 | 67,084 | 9 |
-| 32 | 12,517 | 70,133 | 6 |
-| 64 | 19,463 | 72,356 | 4 |
+| 1 | 1,665 | 20,693 | 12 |
+| 4 | 4,926 | 60,440 | 12 |
+| 8 | 8,790 | 80,650 | 9 |
+| 16 | 14,776 | 87,784 | 6 |
+| 32 | 21,400 | 90,530 | 4 |
+| 64 | 28,096 | 94,501 | 3 |
 
-Write throughput increases with concurrency (542 to 19,463 ops/sec over the range tested). Group commit, deferred fsync, and tighter replication loops allow many in-flight writes to share disk sync and round-trip costs.
+Reads run 3–12× faster than writes: a read is an in-memory map lookup on the leader, while a write has to replicate to a majority and hit disk. The gap narrows with concurrency. Writes climb from 1,665 to 28,096 ops/sec because group commit and deferred fsync let many in-flight writes share one disk sync and one replication round trip. Reads flatten near 94k, bound by CPU and HTTP handling on a single host rather than by consensus.
 
-Read throughput is still higher than writes and levels off near 72k ops/sec between 32 and 64 clients, consistent with CPU or HTTP handling limits on a single host. The read/write ratio is much narrower than before write-path optimizations because write throughput improved dramatically.
+## Latency
 
----
-
-## 3. Latency percentiles
-
-### Writes (PUT, Raft commit path)
+### Writes (PUT, full commit path)
 
 ![Write latency percentiles](results/img/write_latency_percentiles.png)
 
 | Concurrency | p50 (ms) | p95 (ms) | p99 (ms) |
 |---:|---:|---:|---:|
-| 1 | 1.8 | 3.1 | 3.6 |
-| 8 | 1.8 | 2.9 | 3.5 |
-| 16 | 2.1 | 3.3 | 4.0 |
-| 32 | 2.5 | 3.7 | 5.5 |
-| 64 | 3.1 | 4.8 | 8.3 |
+| 1 | 0.47 | 1.52 | 1.94 |
+| 8 | 0.77 | 2.07 | 2.73 |
+| 16 | 0.95 | 2.11 | 2.82 |
+| 32 | 1.31 | 2.58 | 3.77 |
+| 64 | 2.05 | 3.71 | 5.95 |
 
-At concurrency 1, write latency has a floor of roughly 2 ms, down from the previous ~11 ms per-entry fsync floor. Median latency stays in the low single-digit milliseconds across the sweep; p99 reaches 8.3 ms at 64 clients.
+A write commits in well under a millisecond at low concurrency (p50 0.47 ms at one client). It still has to replicate to a majority and fsync, but that path is fast on this host. The median stays sub-millisecond through 16 clients and the tail stretches under load (p99 5.95 ms at 64 clients) as writes queue behind shared disk syncs.
 
-### Reads (GET, leader in-memory path)
+### Reads (GET, leader memory)
 
 ![Read latency percentiles](results/img/read_latency_percentiles.png)
 
 | Concurrency | p50 (ms) | p95 (ms) | p99 (ms) |
 |---:|---:|---:|---:|
-| 1 | 0.061 | 0.083 | 0.12 |
-| 16 | 0.17 | 0.59 | 1.33 |
-| 64 | 0.64 | 2.58 | 4.43 |
+| 1 | 0.045 | 0.059 | 0.083 |
+| 16 | 0.14 | 0.40 | 1.04 |
+| 64 | 0.51 | 1.79 | 3.26 |
 
-Reads remain sub-millisecond at low concurrency and stay in the low single-digit milliseconds at p99 under the loads tested. The read path does not run consensus or disk I/O.
+Sub-millisecond at low load, low single-digit p99 under load. No consensus, no disk.
 
----
-
-## 4. Request routing: leader vs follower
+## Follower forwarding
 
 ![Routing comparison](results/img/routing_comparison.png)
 
 | Target | Throughput (ops/sec) | p50 (ms) | p99 (ms) |
 |---|---:|---:|---:|
-| Leader (direct) | 7,673 | 2.0 | 4.1 |
-| Follower (forwarded) | 6,796 | 2.3 | 5.6 |
+| Leader (direct) | 13,595 | 1.0 | 3.1 |
+| Follower (forwarded) | 10,286 | 1.4 | 3.6 |
 
-Writes sent to a follower, which forwards to the leader over gRPC, are slightly slower than direct leader writes in this run (~11% lower throughput, modestly higher p99). The gap is still small on loopback compared with the overall commit path. This does not imply that leader discovery is unnecessary in production; it only characterizes this single-host setup.
+A write sent to a follower is forwarded to the leader over gRPC, costing ~24% throughput and some tail latency here (one extra in-process hop before the commit path). Over a real network that hop would weigh more.
 
----
-
-## 5. Cluster size and failover
-
-### Write performance vs cluster size
+## Cluster size
 
 ![Cluster size comparison](results/img/cluster_size_comparison.png)
 
 | Cluster size | Throughput (ops/sec) | p50 (ms) | p99 (ms) |
 |---|---:|---:|---:|
-| 3 nodes | 7,769 | 2.0 | 3.7 |
-| 5 nodes | 7,592 | 2.1 | 3.9 |
+| 3 nodes | 13,815 | 1.0 | 3.0 |
+| 5 nodes | 11,546 | 1.3 | 3.2 |
 
-At 16 concurrent clients writing to the leader, 3-node and 5-node clusters performed similarly; the 5-node run was slightly slower in this sample. The leader replicates to followers in parallel and only requires a majority of acknowledgments (2 of 3 vs 3 of 5), so two additional local followers did not add measurable cost on this host. Treat the difference as within measurement noise.
+At 16 clients (leader-direct), three nodes sustain ~13.8k writes/sec versus ~11.5k at five, about 16% lower. The leader replicates in parallel and only waits for a majority (2 of 3 versus 3 of 5), but on this host the two extra local followers add enough replication and fsync load to show up. On a real network the gap would have a different shape: reaching a larger majority costs more round trips, but the followers no longer contend for the same local disk and CPU.
 
-### Recovery after leader failure
+## Failover
 
 ![Failover recovery](results/img/failover_recovery.png)
 
 | Trial | Leader change | Recovery (ms) |
 |---|---|---:|
-| 1 | node3 → node1 | 333 |
-| 2 | node1 → node2 | 333 |
-| 3 | node2 → node3 | 315 |
-| Mean | | 327 |
+| 1 | node3 → node1 | 689 |
+| 2 | node1 → node2 | 1,372 |
+| 3 | node2 → node1 | 2,142 |
+| Mean | | 1,401 |
 
-The leader was killed during load. Recovery time is measured from the kill until a write to a surviving follower commits successfully. Mean recovery was 327 ms, which aligns with Quorum's randomized election timeout of 300–450 ms (see project README). No manual steps were required for the cluster to accept writes again.
-
----
-
-## 6. Limitations
-
-- **Single host.** All nodes share one machine; replication uses loopback networking. Real deployments would add inter-node RTT to write latency and failover time.
-- **Closed-loop load.** When the server slows, clients slow with it, which can under-report tail latency compared with fixed-rate open-loop generators. Treat p99 as a lower bound under this harness.
-- **Workload.** Small uniform values and unique keys only; no sweeps over payload size, key distribution, or mixed read/write ratios.
-- **Sample size.** Cluster-size and routing comparisons use one concurrency level each.
-- **Portability.** Re-run on the target environment for absolute figures.
-
----
-
-## 7. Summary
-
-| Observation | Result (this run) |
-|---|---|
-| Read vs write throughput | Reads peak near 72k ops/sec; writes reach ~19.5k ops/sec at 64 clients. |
-| Write latency | ~2 ms floor at low load; p99 rises to ~8 ms at 64 clients. |
-| Read latency | Sub-ms at low load; p99 under 5 ms at 64 clients. |
-| Follower forwarding | Slightly slower than direct leader writes on loopback (~11% throughput gap). |
-| 3 vs 5 nodes | Comparable write performance at 16 clients. |
-| Failover | Mean write recovery ~327 ms after leader kill. |
+The leader is killed mid-load; recovery is the time from the kill until a write commits on a surviving node. It is dominated by the randomized **600–1000 ms** election timeout: a follower has to ride out its timeout before standing for election, and if the first round splits the vote another timeout elapses before a leader emerges. That makes the figure noisy: across repeated runs it landed anywhere from ~0.7 s (one clean election) to ~3.4 s (a split round plus a retry), averaging roughly 1.4 s here. No manual intervention is needed for writes to resume.

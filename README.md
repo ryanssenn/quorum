@@ -23,11 +23,11 @@ Results from a 3-node cluster on a single host ([full report](benchmarks/REPORT.
 
 | Metric                          | Result          |
 | ------------------------------- | --------------- |
-| Peak read throughput            | 72,356 ops/s    |
-| Write throughput (64 clients)   | 19,463 ops/s    |
-| Read latency, p99 (16 clients)  | 1.33 ms         |
-| Write latency, p99 (16 clients) | 4.0 ms          |
-| Leader failover recovery        | 327 ms          |
+| Peak read throughput            | 94,501 ops/s    |
+| Write throughput (64 clients)   | 28,096 ops/s    |
+| Read latency, p99 (16 clients)  | 1.04 ms         |
+| Write latency, p99 (16 clients) | 2.8 ms          |
+| Leader failover recovery        | ~1.4 s          |
 
 These numbers measure implementation overhead on a single machine rather than network performance across multiple hosts.
 
@@ -44,6 +44,8 @@ go run ./benchmarks --quick --concurrency=1,16,64
 ## Observability
 
 <img width="800" height="404" alt="quorum_demo" src="https://github.com/user-attachments/assets/4eb1e2e3-e883-48a3-996a-cb1ad600c111" />
+
+The clip above is the playground: a single-command dashboard that boots a real multi-node Raft cluster and drives it with a stress-test workload (concurrent writers, node kills, and leader failover) while Prometheus scrapes every node. It renders live throughput, latency, and leadership/quorum charts next to an animated topology that shows client requests, log replication, and elections as they happen.
 
 Prerequisite: [Docker Desktop](https://www.docker.com/products/docker-desktop/) must be running (used to start Prometheus).
 
