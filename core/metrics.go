@@ -85,8 +85,9 @@ func RegisterNodeMetrics(n *Node) {
 	lastAppliedGauge.WithLabelValues(id).Set(float64(applied))
 	applyLagGauge.WithLabelValues(id).Set(float64(commit - applied))
 	logLengthGauge.WithLabelValues(id).Set(float64(n.GetLogSize()))
-	stateGauge.WithLabelValues(id).Set(float64(n.State))
-	if n.State == Leader {
+	state := n.GetState()
+	stateGauge.WithLabelValues(id).Set(float64(state))
+	if state == Leader {
 		isLeaderGauge.WithLabelValues(id).Set(1)
 	} else {
 		isLeaderGauge.WithLabelValues(id).Set(0)

@@ -32,7 +32,7 @@ func testNode(t *testing.T, id string) *Node {
 
 func TestUpdateCommitIndex(t *testing.T) {
 	n := testNode(t, "node1")
-	n.State = Leader
+	n.SetState(Leader)
 	n.Term.Store(1)
 
 	oldTerm := NewLogEntry(0, NewCommand("put", "old", "x"))
@@ -91,7 +91,7 @@ func TestApplyCommittedOrdering(t *testing.T) {
 
 func TestCommitWaitsForApply(t *testing.T) {
 	n := testNode(t, "node1")
-	n.State = Leader
+	n.SetState(Leader)
 	n.Term.Store(1)
 
 	go func() {
@@ -111,7 +111,7 @@ func TestCommitWaitsForApply(t *testing.T) {
 
 func TestSnapshotCompaction(t *testing.T) {
 	n := testNode(t, "node1")
-	n.State = Leader
+	n.SetState(Leader)
 	n.Term.Store(1)
 
 	prev := SnapshotThreshold

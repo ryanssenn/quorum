@@ -95,7 +95,7 @@ func status(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(map[string]any{
 		"id":            node.Id,
-		"state":         node.State,
+		"state":         node.GetState(),
 		"stateName":     node.StateName(),
 		"term":          node.Term.Load(),
 		"leaderId":      leaderIDStr(),
